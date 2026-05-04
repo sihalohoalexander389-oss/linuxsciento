@@ -1162,7 +1162,7 @@ ${sock && sock.user ? `┃ ⌬ NOMOR : ${linkedWhatsAppNumber || sock.user?.id?.
 });
 
 // ======================= FITUR PULL UPDATE =======================
-const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/index.js";
+const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
 bot.command("pullupdate", checkOwner, async (ctx) => {
     await ctx.reply("🔄 Sedang mengambil update dari GitHub...");
