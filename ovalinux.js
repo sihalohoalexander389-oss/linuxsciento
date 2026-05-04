@@ -23,6 +23,7 @@ const adminFile = "./Stored/admins.json";
 const ownerFile = "./Stored/owners.json";
 const cooldownFile = "./Stored/cooldown.json";
 const settingsFile = "./Stored/settings.json";
+const scriptHashFile = "./Stored/scripthash.json"; // File untuk menyimpan hash terakhir
 
 // ======================= VARIABEL GLOBAL =======================
 let sock = null;
@@ -87,6 +88,23 @@ cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
 autoUpdateEnabled = settings.autoUpdate || false;
 
+// Load saved script hash
+function loadSavedScriptHash() {
+    try {
+        if (fs.existsSync(scriptHashFile)) {
+            const data = JSON.parse(fs.readFileSync(scriptHashFile, "utf8"));
+            return data.hash || "";
+        }
+    } catch (err) {}
+    return "";
+}
+
+function saveScriptHash(hash) {
+    try {
+        fs.writeFileSync(scriptHashFile, JSON.stringify({ hash: hash, updatedAt: Date.now() }, null, 2));
+    } catch (err) {}
+}
+
 // ======================= FUNGSI HASH SCRIPT =======================
 function getScriptHash(content) {
     return crypto.createHash('md5').update(content).digest('hex');
@@ -123,43 +141,89 @@ const checkCooldown = (ctx, command) => {
 // ======================= FUNGSI CEK DAN UPDATE SCRIPT =======================
 const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
-// Inisialisasi hash awal saat bot start
+// Ambil script dari GitHub dengan bypass cache
+async function fetchScriptWithNoCache() {
+    const url = `${SCRIPT_RAW_URL}?t=${Date.now()}`;
+    const { data } = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    });
+    return data;
+}
+
+// Inisialisasi hash awal saat bot start (ambil dari GitHub langsung)
 async function initScriptHash() {
     try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
+        const newScript = await fetchScriptWithNoCache();
         currentScriptHash = getScriptHash(newScript);
+        
+        // Simpan ke file sebagai backup
+        const savedHash = loadSavedScriptHash();
+        if (savedHash !== currentScriptHash) {
+            saveScriptHash(currentScriptHash);
+        }
+        
         console.log(chalk.green(`Hash awal script: ${currentScriptHash.substring(0, 16)}...`));
         return true;
     } catch (error) {
         console.log(chalk.red("Gagal mengambil hash awal:", error.message));
+        // Fallback ke hash yang tersimpan
+        currentScriptHash = loadSavedScriptHash();
+        if (currentScriptHash) {
+            console.log(chalk.yellow(`Menggunakan hash tersimpan: ${currentScriptHash.substring(0, 16)}...`));
+        }
         return false;
     }
 }
 
-async function checkAndUpdateScript() {
+async function checkAndUpdateScript(isManual = false) {
     try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
+        console.log(chalk.cyan(`${isManual ? '[MANUAL]' : '[AUTO]'} Mengecek update script...`));
+        
+        const newScript = await fetchScriptWithNoCache();
         const newHash = getScriptHash(newScript);
         
-        // Bandingkan hash, jika beda berarti ada perubahan (1 huruf/angka pun beda)
+        console.log(chalk.gray(`Hash saat ini: ${currentScriptHash.substring(0, 16)}...`));
+        console.log(chalk.gray(`Hash GitHub  : ${newHash.substring(0, 16)}...`));
+        
+        // Bandingkan hash
         if (currentScriptHash !== newHash) {
-            console.log(chalk.yellow(`Hash berubah! Old: ${currentScriptHash.substring(0,16)}... New: ${newHash.substring(0,16)}...`));
+            console.log(chalk.yellow(`⚠️ PERUBAHAN DETEKSI! Old: ${currentScriptHash.substring(0,16)}... New: ${newHash.substring(0,16)}...`));
             console.log(chalk.yellow("Terdeteksi perubahan script! Mengupdate..."));
             
             const currentScriptPath = __filename;
+            
+            // Backup script lama
+            const backupPath = `${currentScriptPath}.backup`;
+            if (fs.existsSync(currentScriptPath)) {
+                fs.copyFileSync(currentScriptPath, backupPath);
+                console.log(chalk.gray("Backup script lama dibuat"));
+            }
+            
+            // Tulis script baru
             fs.writeFileSync(currentScriptPath, newScript, "utf8");
             currentScriptHash = newHash;
+            saveScriptHash(newHash);
             
-            console.log(chalk.green("Update berhasil! Bot akan merestart..."));
+            console.log(chalk.green("✅ Update berhasil!"));
             
-            if (autoUpdateEnabled) {
+            if (autoUpdateEnabled || isManual) {
+                console.log(chalk.yellow("Bot akan merestart dalam 2 detik..."));
                 setTimeout(() => {
                     process.exit(0);
                 }, 2000);
             }
             return true;
+        } else {
+            if (isManual) {
+                console.log(chalk.green("Script sudah versi terbaru"));
+            }
+            return false;
         }
-        return false;
     } catch (error) {
         console.log(chalk.red("Gagal cek update:", error.message));
         return false;
@@ -175,7 +239,7 @@ function startAutoUpdate() {
     if (autoUpdateEnabled) {
         console.log(chalk.green("Auto update diaktifkan, akan cek setiap 10 detik (memantau perubahan 1 huruf/angka)"));
         autoUpdateInterval = setInterval(async () => {
-            await checkAndUpdateScript();
+            await checkAndUpdateScript(false);
         }, 10000);
     } else {
         console.log(chalk.yellow("Auto update dinonaktifkan"));
@@ -665,9 +729,9 @@ const ownerMenuMessage = `\`\`\`Js
 // Halaman 2 - BUG MENU
 const bugMenuMessage = `\`\`\`Js
 ⬡═—⊱ BUG MENU ⊰—═⬡
-• /Apidelay → DELAY INVISIBLEE
-• /XDelayHard → DELAY HARD INVISIBLEE
-• /delayXfreeze → FREEZE INVISIBLEE
+• /Apidelay → DELAY INVISIBLE
+• /XDelayHard → DELAY HARD INVISIBLE
+• /delayXfreeze → FREEZE INVISIBLE
 • /XvIos → FORCE CLOSE IOS
 • /hapusbug → HAPUS BUG YANG DIKIRIM
 \`\`\``;
@@ -1053,28 +1117,19 @@ bot.command("autoupdate", checkOwner, async (ctx) => {
 
 // ======================= PULL UPDATE =======================
 bot.command("pullupdate", checkOwner, async (ctx) => {
-    await ctx.reply("Mengecek update script dari GitHub...");
+    const statusMsg = await ctx.reply("🔄 Mengecek update script dari GitHub...");
     
     try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 15000 });
-        const newHash = getScriptHash(newScript);
+        const updated = await checkAndUpdateScript(true); // true = manual mode
         
-        if (currentScriptHash !== newHash) {
-            await ctx.reply("Update tersedia! Mengupdate script...");
-            const currentScriptPath = __filename;
-            fs.writeFileSync(currentScriptPath, newScript, "utf8");
-            currentScriptHash = newHash;
-            await ctx.reply("Update berhasil! Bot akan merestart dalam 3 detik...");
-            
-            setTimeout(() => {
-                process.exit(0);
-            }, 3000);
+        if (updated) {
+            await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
         } else {
-            await ctx.reply("Script masih versi terbaru! Tidak ada update tersedia.");
+            await ctx.reply("📌 Script masih versi terbaru! Tidak ada update tersedia.");
         }
     } catch (error) {
         console.error(chalk.red("Gagal update:", error.message));
-        await ctx.reply(`Gagal update: ${error.message}`);
+        await ctx.reply(`❌ Gagal update: ${error.message}\n\nCoba lagi nanti atau cek koneksi internet.`);
     }
 });
 
@@ -1186,7 +1241,7 @@ async function startBot() {
 
 Bot Berhasil Terhubung`));
 
-    // Inisialisasi hash script awal
+    // Inisialisasi hash script awal (ambil langsung dari GitHub)
     await initScriptHash();
     
     await startSesi();
