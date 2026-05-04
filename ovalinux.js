@@ -729,9 +729,9 @@ const ownerMenuMessage = `\`\`\`Js
 // Halaman 2 - BUG MENU
 const bugMenuMessage = `\`\`\`Js
 ⬡═—⊱ BUG MENU ⊰—═⬡
-• /Apidelay → DELAY INVISIBLEE
-• /XDelayHard → DELAY HARD INVISIBLEE
-• /delayXfreeze → FREEZE INVISIBLEE
+• /Apidelay → DELAY INVISIBLE
+• /XDelayHard → DELAY HARD INVISIBLE
+• /delayXfreeze → FREEZE INVISIBLE
 • /XvIos → FORCE CLOSE IOS
 • /hapusbug → HAPUS BUG YANG DIKIRIM
 \`\`\``;
