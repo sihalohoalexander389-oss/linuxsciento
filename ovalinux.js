@@ -634,7 +634,7 @@ My Best Friend : @penzoyzy29
 Harga Users : Rp25.000
 Harga Reseller : Rp30.000
 
-Klik button di bawah untuk melanjutkan
+Klik button di bawah untuk melanjutkann
 \`\`\``;
 
 // Halaman 1 - OWNER MENU
