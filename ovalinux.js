@@ -207,20 +207,13 @@ async function checkAndUpdateScript(isManual = false) {
             
             const currentScriptPath = __filename;
             
-            // Backup script lama
-            const backupPath = `${currentScriptPath}.backup.${Date.now()}`;
-            if (fs.existsSync(currentScriptPath)) {
-                fs.copyFileSync(currentScriptPath, backupPath);
-                console.log(chalk.gray(`📁 Backup script lama: ${path.basename(backupPath)}`));
-            }
-            
-            // Tulis script baru
+            // LANGSUNG TIMPA FILE UTAMA (tanpa backup)
             fs.writeFileSync(currentScriptPath, newScript, "utf8");
             currentScriptHash = newHash;
             saveScriptHash(newHash);
             
-            console.log(chalk.green("✅ Update berhasil!"));
-            console.log(chalk.green(`📁 Script baru disimpan, hash: ${newHash.substring(0, 16)}...`));
+            console.log(chalk.green("✅ Update berhasil! File ovalinux.js langsung diganti dengan code baru dari GitHub"));
+            console.log(chalk.green(`📁 Script baru ditulis, hash: ${newHash.substring(0, 16)}...`));
             
             if (autoUpdateEnabled || isManual) {
                 console.log(chalk.yellow("🔄 Bot akan merestart dalam 2 detik..."));
@@ -231,7 +224,7 @@ async function checkAndUpdateScript(isManual = false) {
             return true;
         } else {
             if (isManual) {
-                console.log(chalk.green("✅ Script sudah versi terbaruu"));
+                console.log(chalk.green("✅ Script masih versi terbaru"));
             }
             return false;
         }
@@ -1125,6 +1118,7 @@ bot.command("autoupdate", checkOwner, async (ctx) => {
 ⏱️ Interval pengecekan: 3 DETIK
 📡 Setiap perubahan 1 huruf/angka akan langsung terdeteksi
 🔄 Bot akan otomatis restart jika ada update
+📁 File ovalinux.js akan LANGSUNG DIGANTI (tanpa backup)
 
 💡 Gunakan /autoupdate off untuk menonaktifkan`);
         } else {
@@ -1153,7 +1147,7 @@ bot.command("pullupdate", checkOwner, async (ctx) => {
         const updated = await checkAndUpdateScript(true);
         
         if (updated) {
-            await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
+            await ctx.reply("✅ Update berhasil! File ovalinux.js langsung diganti dengan code baru dari GitHub.\n\nBot akan merestart dalam 3 detik...");
         } else {
             await ctx.reply("📌 Script masih versi terbaru! Tidak ada update tersedia.");
         }
@@ -1282,6 +1276,7 @@ Bot Berhasil Terhubung`));
     console.log(chalk.green("Bot Telegram berjalan..."));
     console.log(chalk.yellow(`📌 Auto Update: ${autoUpdateEnabled ? 'ON (3 detik)' : 'OFF (default)'}`));
     console.log(chalk.yellow("💡 Gunakan /autoupdate on untuk mengaktifkan auto update"));
+    console.log(chalk.cyan("📝 Catatan: Saat update, file ovalinux.js LANGSUNG DIGANTI (tanpa backup)"));
 }
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
