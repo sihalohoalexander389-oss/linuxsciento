@@ -609,7 +609,7 @@ const supportMenuMessage = `\`\`\`Js
 └────────────────────
 
 ┌─〔 SPECIAL THANKS 〕
-│ ✦ Semua Member Linux Sciento
+│ ✦ Semua Member Linux Scientoo
 │ ✦ Semua Yang Pernah Support
 └────────────────────
 
