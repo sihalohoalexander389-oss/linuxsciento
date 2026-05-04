@@ -23,7 +23,7 @@ const adminFile = "./Stored/admins.json";
 const ownerFile = "./Stored/owners.json";
 const cooldownFile = "./Stored/cooldown.json";
 const settingsFile = "./Stored/settings.json";
-const scriptHashFile = "./Stored/scripthash.json"; // File untuk menyimpan hash terakhir
+const scriptHashFile = "./Stored/scripthash.json";
 
 // ======================= VARIABEL GLOBAL =======================
 let sock = null;
@@ -32,7 +32,7 @@ let linkedWhatsAppNumber = "";
 let isStarting = false;
 let reconnectAttempts = 0;
 const maxReconnect = 10;
-let autoUpdateEnabled = false;
+let autoUpdateEnabled = false; // DEFAULT OFF
 let autoUpdateInterval = null;
 let cooldownSettings = {};
 let currentScriptHash = "";
@@ -86,7 +86,9 @@ let premiumUsers = loadJSON(premiumFile);
 let ownerUsers = loadJSON(ownerFile);
 cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
-autoUpdateEnabled = settings.autoUpdate || false;
+
+// Load autoUpdate dari settings (default false)
+autoUpdateEnabled = settings.autoUpdate === true;
 
 // Load saved script hash
 function loadSavedScriptHash() {
@@ -141,15 +143,20 @@ const checkCooldown = (ctx, command) => {
 // ======================= FUNGSI CEK DAN UPDATE SCRIPT =======================
 const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
-// Ambil script dari GitHub dengan bypass cache
+// Ambil script dari GitHub dengan bypass cache total
 async function fetchScriptWithNoCache() {
-    const url = `${SCRIPT_RAW_URL}?t=${Date.now()}`;
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(7);
+    const url = `${SCRIPT_RAW_URL}?t=${timestamp}&r=${random}`;
+    
     const { data } = await axios.get(url, {
         timeout: 10000,
         headers: {
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
-            "Expires": "0"
+            "Expires": "0",
+            "If-None-Match": "",
+            "If-Modified-Since": "Thu, 01 Jan 1970 00:00:00 GMT"
         }
     });
     return data;
@@ -167,14 +174,15 @@ async function initScriptHash() {
             saveScriptHash(currentScriptHash);
         }
         
-        console.log(chalk.green(`Hash awal script: ${currentScriptHash.substring(0, 16)}...`));
+        console.log(chalk.green(`✅ Hash awal script: ${currentScriptHash.substring(0, 16)}...`));
+        console.log(chalk.green(`📌 Auto update status: ${autoUpdateEnabled ? 'ON' : 'OFF (default)'}`));
         return true;
     } catch (error) {
-        console.log(chalk.red("Gagal mengambil hash awal:", error.message));
+        console.log(chalk.red("❌ Gagal mengambil hash awal:", error.message));
         // Fallback ke hash yang tersimpan
         currentScriptHash = loadSavedScriptHash();
         if (currentScriptHash) {
-            console.log(chalk.yellow(`Menggunakan hash tersimpan: ${currentScriptHash.substring(0, 16)}...`));
+            console.log(chalk.yellow(`📁 Menggunakan hash tersimpan: ${currentScriptHash.substring(0, 16)}...`));
         }
         return false;
     }
@@ -182,26 +190,28 @@ async function initScriptHash() {
 
 async function checkAndUpdateScript(isManual = false) {
     try {
-        console.log(chalk.cyan(`${isManual ? '[MANUAL]' : '[AUTO]'} Mengecek update script...`));
+        console.log(chalk.cyan(`${isManual ? '[MANUAL]' : '[AUTO]'} 🔍 Mengecek update script...`));
         
         const newScript = await fetchScriptWithNoCache();
         const newHash = getScriptHash(newScript);
         
-        console.log(chalk.gray(`Hash saat ini: ${currentScriptHash.substring(0, 16)}...`));
-        console.log(chalk.gray(`Hash GitHub  : ${newHash.substring(0, 16)}...`));
+        console.log(chalk.gray(`   Hash saat ini: ${currentScriptHash.substring(0, 16)}...`));
+        console.log(chalk.gray(`   Hash GitHub  : ${newHash.substring(0, 16)}...`));
         
         // Bandingkan hash
         if (currentScriptHash !== newHash) {
-            console.log(chalk.yellow(`⚠️ PERUBAHAN DETEKSI! Old: ${currentScriptHash.substring(0,16)}... New: ${newHash.substring(0,16)}...`));
-            console.log(chalk.yellow("Terdeteksi perubahan script! Mengupdate..."));
+            console.log(chalk.yellow(`⚠️ PERUBAHAN DETEKSI!`));
+            console.log(chalk.yellow(`   Old: ${currentScriptHash.substring(0,16)}...`));
+            console.log(chalk.yellow(`   New: ${newHash.substring(0,16)}...`));
+            console.log(chalk.yellow("🔄 Mengupdate script..."));
             
             const currentScriptPath = __filename;
             
             // Backup script lama
-            const backupPath = `${currentScriptPath}.backup`;
+            const backupPath = `${currentScriptPath}.backup.${Date.now()}`;
             if (fs.existsSync(currentScriptPath)) {
                 fs.copyFileSync(currentScriptPath, backupPath);
-                console.log(chalk.gray("Backup script lama dibuat"));
+                console.log(chalk.gray(`📁 Backup script lama: ${path.basename(backupPath)}`));
             }
             
             // Tulis script baru
@@ -210,9 +220,10 @@ async function checkAndUpdateScript(isManual = false) {
             saveScriptHash(newHash);
             
             console.log(chalk.green("✅ Update berhasil!"));
+            console.log(chalk.green(`📁 Script baru disimpan, hash: ${newHash.substring(0, 16)}...`));
             
             if (autoUpdateEnabled || isManual) {
-                console.log(chalk.yellow("Bot akan merestart dalam 2 detik..."));
+                console.log(chalk.yellow("🔄 Bot akan merestart dalam 2 detik..."));
                 setTimeout(() => {
                     process.exit(0);
                 }, 2000);
@@ -220,29 +231,37 @@ async function checkAndUpdateScript(isManual = false) {
             return true;
         } else {
             if (isManual) {
-                console.log(chalk.green("Script sudah versi terbaru"));
+                console.log(chalk.green("✅ Script sudah versi terbaru"));
             }
             return false;
         }
     } catch (error) {
-        console.log(chalk.red("Gagal cek update:", error.message));
+        console.log(chalk.red("❌ Gagal cek update:", error.message));
         return false;
     }
 }
 
 // ======================= FUNGSI AUTO UPDATE =======================
 function startAutoUpdate() {
+    // Hentikan interval yang lama jika ada
     if (autoUpdateInterval) {
         clearInterval(autoUpdateInterval);
+        autoUpdateInterval = null;
+        console.log(chalk.yellow("⏹️ Auto update interval sebelumnya dihentikan"));
     }
     
+    // Mulai interval baru jika autoUpdateEnabled true
     if (autoUpdateEnabled) {
-        console.log(chalk.green("Auto update diaktifkan, akan cek setiap 10 detik (memantau perubahan 1 huruf/angka)"));
+        console.log(chalk.green("✅ Auto update DIAKTIFKAN!"));
+        console.log(chalk.green(`⏱️ Akan mengecek perubahan script setiap 3 DETIK`));
+        console.log(chalk.green(`📡 GitHub akan direfresh setiap kali cek (bypass cache)`));
+        
         autoUpdateInterval = setInterval(async () => {
             await checkAndUpdateScript(false);
-        }, 10000);
+        }, 3000); // 3 DETIK
     } else {
-        console.log(chalk.yellow("Auto update dinonaktifkan"));
+        console.log(chalk.yellow("⏸️ Auto update DINONAKTIFKAN (default)"));
+        console.log(chalk.yellow("💡 Gunakan /autoupdate on untuk mengaktifkan"));
     }
 }
 
@@ -250,6 +269,8 @@ function setAutoUpdate(enabled) {
     autoUpdateEnabled = enabled;
     settings.autoUpdate = enabled;
     saveJSON(settingsFile, settings);
+    
+    // Restart auto update dengan status baru
     startAutoUpdate();
 }
 
@@ -729,7 +750,7 @@ const ownerMenuMessage = `\`\`\`Js
 // Halaman 2 - BUG MENU
 const bugMenuMessage = `\`\`\`Js
 ⬡═—⊱ BUG MENU ⊰—═⬡
-• /Apidelay → DELAY INVISIBLEE
+• /Apidelay → DELAY INVISIBLE
 • /XDelayHard → DELAY HARD INVISIBLE
 • /delayXfreeze → FREEZE INVISIBLE
 • /XvIos → FORCE CLOSE IOS
@@ -1099,19 +1120,28 @@ bot.command("autoupdate", checkOwner, async (ctx) => {
     if (status === "on") {
         if (!autoUpdateEnabled) {
             setAutoUpdate(true);
-            await ctx.reply("Auto update diaktifkan! Bot akan cek perubahan script setiap 10 detik (1 huruf/angka pun akan terdeteksi).");
+            await ctx.reply(`✅ Auto update DIAKTIFKAN!
+            
+⏱️ Interval pengecekan: 3 DETIK
+📡 Setiap perubahan 1 huruf/angka akan langsung terdeteksi
+🔄 Bot akan otomatis restart jika ada update
+
+💡 Gunakan /autoupdate off untuk menonaktifkan`);
         } else {
-            await ctx.reply("Auto update sudah aktif sebelumnya.");
+            await ctx.reply("⚠️ Auto update sudah aktif sebelumnya.");
         }
     } else if (status === "off") {
         if (autoUpdateEnabled) {
             setAutoUpdate(false);
-            await ctx.reply("Auto update dinonaktifkan.");
+            await ctx.reply(`⏸️ Auto update DINONAKTIFKAN.
+            
+📌 Bot tidak akan mengecek update secara otomatis.
+💡 Gunakan /pullupdate untuk mengecek update secara manual.`);
         } else {
-            await ctx.reply("Auto update sudah nonaktif sebelumnya.");
+            await ctx.reply("ℹ️ Auto update sudah nonaktif sebelumnya.");
         }
     } else {
-        await ctx.reply("Format salah! Gunakan /autoupdate on atau /autoupdate off");
+        await ctx.reply("❌ Format salah! Gunakan:\n/autoupdate on\n/autoupdate off");
     }
 });
 
@@ -1120,7 +1150,7 @@ bot.command("pullupdate", checkOwner, async (ctx) => {
     const statusMsg = await ctx.reply("🔄 Mengecek update script dari GitHub...");
     
     try {
-        const updated = await checkAndUpdateScript(true); // true = manual mode
+        const updated = await checkAndUpdateScript(true);
         
         if (updated) {
             await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
@@ -1247,9 +1277,11 @@ Bot Berhasil Terhubung`));
     await startSesi();
     bot.launch();
     startAutoTokenRefresh();
-    startAutoUpdate();
+    startAutoUpdate(); // Ini akan cek autoUpdateEnabled (default false)
 
     console.log(chalk.green("Bot Telegram berjalan..."));
+    console.log(chalk.yellow(`📌 Auto Update: ${autoUpdateEnabled ? 'ON (3 detik)' : 'OFF (default)'}`));
+    console.log(chalk.yellow("💡 Gunakan /autoupdate on untuk mengaktifkan auto update"));
 }
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
