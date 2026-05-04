@@ -29,7 +29,7 @@ let linkedWhatsAppNumber = "";
 let isStarting = false;
 let reconnectAttempts = 0;
 const maxReconnect = 10;
-let currentVersion = "1.0.0";
+let currentVersion = "2.0.0";
 let pendingUpdate = false;
 let cooldownSettings = {};
 
