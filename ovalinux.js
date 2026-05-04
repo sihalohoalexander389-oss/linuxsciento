@@ -690,7 +690,7 @@ const getRandomImage = () => randomImages[Math.floor(Math.random() * randomImage
 // Halaman 0 - MENU UTAMA
 const mainMenuMessage = (Name, waktuRunPanel) => `\`\`\`Js
 𖥂 Linux Sciento 𖥂
-Powerful • Secure • Exclusive
+Powerful • Secure • Exclusivee
 
 Owners : @ItsImLxanderX5
 My Best Friend : @penzoyzy29
