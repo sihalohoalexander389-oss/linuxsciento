@@ -231,7 +231,7 @@ async function checkAndUpdateScript(isManual = false) {
             return true;
         } else {
             if (isManual) {
-                console.log(chalk.green("✅ Script sudah versi terbaru"));
+                console.log(chalk.green("✅ Script sudah versi terbaruu"));
             }
             return false;
         }
