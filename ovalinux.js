@@ -28,6 +28,8 @@ let linkedWhatsAppNumber = "";
 let isStarting = false;
 let reconnectAttempts = 0;
 const maxReconnect = 10;
+let currentVersion = "1.0.0";
+let pendingUpdate = false;
 
 // Cache Token GitHub
 let cachedValidTokens = [];
@@ -87,6 +89,18 @@ async function fetchValidTokens(forceRefresh = false) {
     } catch (err) {
         console.log(chalk.red("❌ Gagal ambil token:", err.message));
         return cachedValidTokens.length ? cachedValidTokens : [];
+    }
+}
+
+// ======================= FUNGSI CEK VERSI SCRIPT =======================
+async function checkScriptVersion() {
+    try {
+        const VERSION_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/version.json";
+        const { data } = await axios.get(VERSION_URL, { timeout: 10000 });
+        return data.version || "1.0.0";
+    } catch (err) {
+        console.log(chalk.red("Gagal cek versi:", err.message));
+        return currentVersion;
     }
 }
 
@@ -591,14 +605,6 @@ async function VnXLocaUiNew(sock, target) {
 // ======================= COMMAND TELEGRAM =======================
 bot.use(session());
 
-// ASCII MAKER (tetap dipertahankan untuk button)
-const asciiMaker = `███╗   ███╗ █████╗ ██╗  ██╗███████╗██████╗ 
-████╗ ████║██╔══██╗██║ ██╔╝██╔════╝██╔══██╗
-██╔████╔██║███████║█████╔╝ █████╗  ██████╔╝
-██║╚██╔╝██║██╔══██║██╔═██╗ ██╔══╝  ██╔══██╗
-██║ ╚═╝ ██║██║  ██║██║  ██╗███████╗██║  ██║
-╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝`;
-
 const getUptime = () => {
     const uptimeSeconds = process.uptime();
     const hours = Math.floor(uptimeSeconds / 3600);
@@ -613,20 +619,11 @@ const randomImages = [
 ];
 const getRandomImage = () => randomImages[Math.floor(Math.random() * randomImages.length)];
 
-// PAGES MENU DENGAN TAMPILAN BARU
+// PAGES MENU DENGAN TAMPILAN BARU DAN PEMBUNGKUS ```JS ```
 const pages = {
     0: {
         name: "main",
-        message: () => `𖥂 Linux Sciento 𖥂
-Powerful • Secure • Exclusive
-
-Owners : @ItsImLxanderX5
-My Best Friend : @penzoyzy29
-
-Harga Users : Rp25.000
-Harga Reseller : Rp30.000
-
-Klik button di bawah untuk melanjutkan`,
+        message: () => "```Js\n𖥂 Linux Sciento 𖥂\nPowerful • Secure • Exclusive\n\nOwners : @ItsImLxanderX5\nMy Best Friend : @penzoyzy29\n\nHarga Users : Rp25.000\nHarga Reseller : Rp30.000\n\nKlik button di bawah untuk melanjutkan\n```",
         keyboard: (currentPage, totalPages) => [
             [
                 { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
@@ -634,32 +631,13 @@ Klik button di bawah untuk melanjutkan`,
                 { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
             ],
             [
-                { text: `${asciiMaker}`, url: "https://t.me/ItsImLxanderX5", style: "primary" }
+                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
             ]
         ]
     },
     1: {
         name: "owner_menu",
-        message: () => `⬡═—⊱ AKSES OWNER ⊰—═⬡
-• /addowner → TAMBAH OWNER
-• /delowner → HAPUS OWNER
-• /addadmin → TAMBAH ADMIN
-• /deladmin → HAPUS ADMIN
-• /addprem → TAMBAH PREMIUM
-• /delprem → HAPUS PREMIUM
-• /setcd → SETTING COOLDOWN
-• /addbot → TAMBAH SENDER
-• /dellbot → HAPUS SENDER
-• /listbot → CEK SENDER AKTIF
-• /pullupdate → UPDATE SCRIPT
-
-⬡═—⊱ AKSES ADMIN ⊰—═⬡
-• /addprem → TAMBAH PREMIUM
-• /delprem → HAPUS PREMIUM
-• /setcd → SETTING COOLDOWN
-• /addbot → TAMBAH SENDER
-• /dellbot → HAPUS SENDER
-• /listbot → CEK SENDER AKTIF`,
+        message: () => "```Js\n⬡═—⊱ AKSES OWNER ⊰—═⬡\n• /addowner → TAMBAH OWNER\n• /delowner → HAPUS OWNER\n• /addadmin → TAMBAH ADMIN\n• /deladmin → HAPUS ADMIN\n• /addprem → TAMBAH PREMIUM\n• /delprem → HAPUS PREMIUM\n• /setcd → SETTING COOLDOWN\n• /addbot → TAMBAH SENDER\n• /dellbot → HAPUS SENDER\n• /listbot → CEK SENDER AKTIF\n• /pullupdate → UPDATE SCRIPT\n\n⬡═—⊱ AKSES ADMIN ⊰—═⬡\n• /addprem → TAMBAH PREMIUM\n• /delprem → HAPUS PREMIUM\n• /setcd → SETTING COOLDOWN\n• /addbot → TAMBAH SENDER\n• /dellbot → HAPUS SENDER\n• /listbot → CEK SENDER AKTIF\n```",
         keyboard: (currentPage, totalPages) => [
             [
                 { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
@@ -667,27 +645,13 @@ Klik button di bawah untuk melanjutkan`,
                 { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
             ],
             [
-                { text: `${asciiMaker}`, url: "https://t.me/ItsImLxanderX5", style: "primary" }
+                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
             ]
         ]
     },
     2: {
         name: "bug_menu",
-        message: () => `⬡═—⊱ BEBAS SPAM BUG ⊰—═⬡
-• /xbug → BEBAS SPAM BUG 
-• /xspam → BEBAS SPAM BUG 
-
-⬡═—⊱ IPHONE BUG ⊰—═⬡
-• /xcios → FORCE CLOSE IOS 
-
-⬡═—⊱ ANDROID BUG ⊰—═⬡
-• /xandro → BLANK STUCK DEVICE
-• /xforce → FORCE CLOSE ANDROID
-• /xperma → DELAY PERMANENT 
-• /xdelay → DELAY HARD INVISIBLE 
-• /Adelay → DELAY INVISIBLE ANDROID
-• /xcall → FRANK SPAM CALL X VIDIO
-• /hapusbug → HAPUS BUG YANG DI KIRIM`,
+        message: () => "```Js\n⬡═—⊱ BEBAS SPAM BUG ⊰—═⬡\n• /xbug → BEBAS SPAM BUG \n• /xspam → BEBAS SPAM BUG \n\n⬡═—⊱ IPHONE BUG ⊰—═⬡\n• /xcios → FORCE CLOSE IOS \n\n⬡═—⊱ ANDROID BUG ⊰—═⬡\n• /xandro → BLANK STUCK DEVICE\n• /xforce → FORCE CLOSE ANDROID\n• /xperma → DELAY PERMANENT \n• /xdelay → DELAY HARD INVISIBLE \n• /Adelay → DELAY INVISIBLE ANDROID\n• /xcall → FRANK SPAM CALL X VIDIO\n• /hapusbug → HAPUS BUG YANG DI KIRIM\n```",
         keyboard: (currentPage, totalPages) => [
             [
                 { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
@@ -695,36 +659,13 @@ Klik button di bawah untuk melanjutkan`,
                 { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
             ],
             [
-                { text: `${asciiMaker}`, url: "https://t.me/ItsImLxanderX5", style: "primary" }
+                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
             ]
         ]
     },
     3: {
         name: "support_menu",
-        message: () => `╭━━━〔 🌑 LINUX SCIENTO BEST SUPPORT 🌑 〕━━━╮
-
-┌─〔 CORE SUPPORT 〕
-│ ✦ @Allah        ➤ Endless Blessing
-│ ✦ @Ortu         ➤ Real Life Backbone
-└────────────────────
-
-┌─〔 LINUX SCIENTO TEAM 〕
-│ ✦ @penzoyzy29
-│ ✦ @ItsImLxanderX5
-│ ✦ @arshadeva
-│ ✦ All buyer and member Linux Sciento
-└────────────────────
-
-┌─〔 SPECIAL THANKS 〕
-│ ✦ Semua Member Linux Sciento
-│ ✦ Semua Yang Pernah Support
-└────────────────────
-
-╰━━━〔 LINUX NEVER DIE 〕━━━╯
-
-Security Script : ACTIVE
-King : @ItsImLxanderX5
-Friend: @penzoyzy29`,
+        message: () => "```Js\n╭━━━〔 🌑 LINUX SCIENTO BEST SUPPORT 🌑 〕━━━╮\n\n┌─〔 CORE SUPPORT 〕\n│ ✦ @Allah        ➤ Endless Blessing\n│ ✦ @Ortu         ➤ Real Life Backbone\n└────────────────────\n\n┌─〔 LINUX SCIENTO TEAM 〕\n│ ✦ @penzoyzy29\n│ ✦ @ItsImLxanderX5\n│ ✦ @arshadeva\n│ ✦ All buyer and member Linux Sciento\n└────────────────────\n\n┌─〔 SPECIAL THANKS 〕\n│ ✦ Semua Member Linux Sciento\n│ ✦ Semua Yang Pernah Support\n└────────────────────\n\n╰━━━〔 LINUX NEVER DIE 〕━━━╯\n\nSecurity Script : ACTIVE\nKing : @ItsImLxanderX5\nFriend: @penzoyzy29\n```",
         keyboard: (currentPage, totalPages) => [
             [
                 { text: "◀ Back", callback_data: "nav_prev", disabled: currentPage === 0, style: "danger" },
@@ -732,7 +673,7 @@ Friend: @penzoyzy29`,
                 { text: "Next ▶", callback_data: "nav_next", disabled: currentPage === totalPages - 1, style: "success" }
             ],
             [
-                { text: `${asciiMaker}`, url: "https://t.me/ItsImLxanderX5", style: "primary" }
+                { text: "Owner", url: "https://t.me/ItsImLxanderX5", style: "primary" }
             ]
         ]
     }
@@ -779,15 +720,13 @@ bot.action(/nav_(prev|next|page)/, async (ctx) => {
 
     if (newPage !== currentPage) {
         ctx.session.currentPage = newPage;
-        const Name = ctx.from.username ? `@${ctx.from.username}` : `${ctx.from.id}`;
-        const waktuRunPanel = getUptime();
         const pageData = pages[newPage];
 
         const media = {
             type: "photo",
             media: getRandomImage(),
-            caption: pageData.message(Name, waktuRunPanel),
-            parse_mode: "HTML"
+            caption: pageData.message(),
+            parse_mode: "Markdown"
         };
 
         try {
@@ -805,19 +744,12 @@ bot.action(/nav_(prev|next|page)/, async (ctx) => {
 
 // Command /start
 bot.start(async (ctx) => {
-    const userId = ctx.from.id.toString();
-    const isPremium = premiumUsers.includes(userId);
-    const Name = ctx.from.username ? `@${ctx.from.username}` : userId;
-    const waktuRunPanel = getUptime();
-
     ctx.session = ctx.session || {};
     ctx.session.currentPage = 0;
 
-    const mainMenuMessage = pages[0].message();
-
     await ctx.replyWithPhoto(getRandomImage(), {
-        caption: mainMenuMessage,
-        parse_mode: "HTML",
+        caption: pages[0].message(),
+        parse_mode: "Markdown",
         reply_markup: getKeyboard(0)
     });
 });
@@ -830,15 +762,17 @@ bot.command("Apidelay", checkWA, checkPremium, async (ctx) => {
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
         caption: `
-<blockquote>交 𝖪𝗒𝗓𝗓Хороший_ ᝄ</blockquote>  
+\`\`\`Js
+交 𝖪𝗒𝗓𝗓Хороший_ ᝄ
 ─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
 
 " バグ情報
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /Apidelay 
+\`\`\`
 `,
-        parse_mode: "HTML",
+        parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
@@ -860,15 +794,17 @@ bot.command("XDelayHard", checkWA, checkPremium, async (ctx) => {
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
         caption: `
-<blockquote>交 ℒιиυχιиנєк ᝄ</blockquote>  
+\`\`\`Js
+交 ℒιиυχιиנєк ᝄ
 ─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
 
 " バグ情報
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /XDelayHard 
+\`\`\`
 `,
-        parse_mode: "HTML",
+        parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
@@ -889,15 +825,17 @@ bot.command("delayXfreeze", checkWA, checkPremium, async (ctx) => {
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
         caption: `
-<blockquote>交 ℒιиυχιиנєк ᝄ</blockquote>  
+\`\`\`Js
+交 ℒιиυχιиנєк ᝄ
 ─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
 
 " バグ情報
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /delayXfreeze 
+\`\`\`
 `,
-        parse_mode: "HTML",
+        parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
@@ -919,15 +857,17 @@ bot.command("XvIos", checkWA, checkPremium, async (ctx) => {
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
         caption: `
-<blockquote>交 ℒιиυχιиנєк ᝄ</blockquote>  
+\`\`\`Js
+交 ℒιиυχιиנєк ᝄ
 ─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
 
 " バグ情報
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /XvIos 
+\`\`\`
 `,
-        parse_mode: "HTML",
+        parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
@@ -949,15 +889,17 @@ bot.command("BlankUi", checkWA, checkPremium, async (ctx) => {
 
     await ctx.sendPhoto("https://files.catbox.moe/o1hm0u.jpg", {
         caption: `
-<blockquote>交 ℒιиυχιиנєк" ᝄ</blockquote>  
+\`\`\`Js
+交 ℒιиυχιиנєк" ᝄ
 ─ WhatsAppにバグを送信するためのTelegramボット。注意と責任を持ってご利用ください.
 
 " バグ情報
 ☇ Target: ${target}
 ☇ Status: Succes
 ☇ Type: /BlankUi
+\`\`\`
 `,
-        parse_mode: "HTML",
+        parse_mode: "Markdown",
         reply_markup: {
             inline_keyboard: [[{ text: "𝗖𝗵𝗲𝗰𝗸 ☇ 𝗧𝗮𝗿𝗴𝗲𝘁", url: `https://wa.me/${target.split("@")[0]}` }]],
         },
@@ -1089,15 +1031,15 @@ bot.command("Addsender", checkOwner, async (ctx) => {
 
         const sentMsg = await ctx.replyWithPhoto(getRandomImage(), {
             caption: `
-<blockquote>
+\`\`\`Js
 ┏━━━━━━━━━━━━━━━━━━━━
 ┃☇ 𝗡𝗼𝗺𝗼𝗿 : ${phoneNumber}
-┃☇ 𝗖𝗼𝗱𝗲 : <code>${formattedCode}</code>
+┃☇ 𝗖𝗼𝗱𝗲 : ${formattedCode}
 ┃☇ 𝗦𝘁𝗮𝘁𝘂𝘀 : ⏳ Menunggu Koneksi...
 ┗━━━━━━━━━━━━━━━━━━━━
-</blockquote>
+\`\`\`
 `,
-            parse_mode: "HTML",
+            parse_mode: "Markdown",
             reply_markup: {
                 inline_keyboard: [[{ text: "❌ Batalkan", callback_data: "Close" }]],
             },
@@ -1145,47 +1087,65 @@ bot.command("Status", checkOwner, async (ctx) => {
     try {
         const waStatus = sock && sock.user && isWhatsAppConnected ? "✅ Terhubung" : "❌ Tidak Terhubung";
         const message = `
-<blockquote>
+\`\`\`Js
 ┏━━━━━━━━━━━━━━━━━━━━
 ┃ STATUS WHATSAPP
 ┣━━━━━━━━━━━━━━━━━━━━
 ┃ ⌬ STATUS : ${waStatus}
 ${sock && sock.user ? `┃ ⌬ NOMOR : ${linkedWhatsAppNumber || sock.user?.id?.split(":")[0]}` : ''}
 ┗━━━━━━━━━━━━━━━━━━━━
-</blockquote>
+\`\`\`
 `;
-        await ctx.reply(message, { parse_mode: "HTML" });
+        await ctx.reply(message, { parse_mode: "Markdown" });
     } catch (error) {
         console.error("Gagal menampilkan status bot:", error);
         ctx.reply("❌ Gagal menampilkan status bot.");
     }
 });
 
-// ======================= FITUR PULL UPDATE =======================
+// ======================= FITUR PULL UPDATE DUA TAHAP =======================
 const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
+const VERSION_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
 bot.command("pullupdate", checkOwner, async (ctx) => {
-    await ctx.reply("🔄 Sedang mengambil update dari GitHub...");
-    
-    try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 15000 });
+    if (pendingUpdate) {
+        await ctx.reply("🔄 Mengupdate script...");
         
-        const currentScriptPath = __filename;
-        const backupPath = `${currentScriptPath}.backup`;
-        
-        fs.copyFileSync(currentScriptPath, backupPath);
-        
-        fs.writeFileSync(currentScriptPath, newScript, "utf8");
-        
-        await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
-        
-        setTimeout(() => {
-            process.exit(0);
-        }, 3000);
-        
-    } catch (error) {
-        console.error(chalk.red("Gagal pull update:", error.message));
-        await ctx.reply(`❌ Gagal update: ${error.message}`);
+        try {
+            const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 15000 });
+            const currentScriptPath = __filename;
+            const backupPath = `${currentScriptPath}.backup`;
+            
+            fs.copyFileSync(currentScriptPath, backupPath);
+            fs.writeFileSync(currentScriptPath, newScript, "utf8");
+            
+            await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
+            pendingUpdate = false;
+            
+            setTimeout(() => {
+                process.exit(0);
+            }, 3000);
+            
+        } catch (error) {
+            console.error(chalk.red("Gagal update:", error.message));
+            await ctx.reply(`❌ Gagal update: ${error.message}`);
+            pendingUpdate = false;
+        }
+    } else {
+        try {
+            const { data: versionData } = await axios.get(VERSION_RAW_URL, { timeout: 10000 });
+            const latestVersion = versionData.version || "1.0.0";
+            
+            if (latestVersion !== currentVersion) {
+                await ctx.reply(`🔍 Version Update New: ${latestVersion}\nSilahkan ketik /pullupdate lagi untuk mengupdate script.`);
+                pendingUpdate = true;
+            } else {
+                await ctx.reply(`✅ Version masih sama: ${currentVersion}\nTidak ada update tersedia.`);
+            }
+        } catch (error) {
+            console.error(chalk.red("Gagal cek versi:", error.message));
+            await ctx.reply(`❌ Gagal mengecek versi: ${error.message}`);
+        }
     }
 });
 
@@ -1223,7 +1183,7 @@ async function startBot() {
 » Information:
 ☇ Creator : @ItsImLxanderX5
 ☇ Name Script : Linux X5 
-☇ Version : 1.0 Generasion 2
+☇ Version : ${currentVersion}
 
 Bot Berhasil Terhubung`));
 
