@@ -12,6 +12,7 @@ const {
 const pino = require("pino");
 const chalk = require("chalk");
 const axios = require("axios");
+const crypto = require("crypto");
 
 // ======================= KONFIGURASI =======================
 const { BOT_TOKEN, OWNER_IDS } = require("./config.js");
@@ -33,6 +34,7 @@ const maxReconnect = 10;
 let autoUpdateEnabled = false;
 let autoUpdateInterval = null;
 let cooldownSettings = {};
+let currentScriptHash = "";
 
 // Cache Token GitHub
 let cachedValidTokens = [];
@@ -85,6 +87,11 @@ cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
 autoUpdateEnabled = settings.autoUpdate || false;
 
+// ======================= FUNGSI HASH SCRIPT =======================
+function getScriptHash(content) {
+    return crypto.createHash('md5').update(content).digest('hex');
+}
+
 // ======================= FUNGSI COOLDOWN =======================
 const setCooldown = (command, duration) => {
     cooldownSettings[command] = duration;
@@ -116,15 +123,33 @@ const checkCooldown = (ctx, command) => {
 // ======================= FUNGSI CEK DAN UPDATE SCRIPT =======================
 const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
+// Inisialisasi hash awal saat bot start
+async function initScriptHash() {
+    try {
+        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
+        currentScriptHash = getScriptHash(newScript);
+        console.log(chalk.green(`Hash awal script: ${currentScriptHash.substring(0, 16)}...`));
+        return true;
+    } catch (error) {
+        console.log(chalk.red("Gagal mengambil hash awal:", error.message));
+        return false;
+    }
+}
+
 async function checkAndUpdateScript() {
     try {
         const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
-        const currentScriptPath = __filename;
-        const currentScript = fs.readFileSync(currentScriptPath, "utf8");
+        const newHash = getScriptHash(newScript);
         
-        if (currentScript !== newScript) {
-            console.log(chalk.yellow("Terdeteksi perubahan pada script GitHub! Mengupdate..."));
+        // Bandingkan hash, jika beda berarti ada perubahan (1 huruf/angka pun beda)
+        if (currentScriptHash !== newHash) {
+            console.log(chalk.yellow(`Hash berubah! Old: ${currentScriptHash.substring(0,16)}... New: ${newHash.substring(0,16)}...`));
+            console.log(chalk.yellow("Terdeteksi perubahan script! Mengupdate..."));
+            
+            const currentScriptPath = __filename;
             fs.writeFileSync(currentScriptPath, newScript, "utf8");
+            currentScriptHash = newHash;
+            
             console.log(chalk.green("Update berhasil! Bot akan merestart..."));
             
             if (autoUpdateEnabled) {
@@ -148,10 +173,10 @@ function startAutoUpdate() {
     }
     
     if (autoUpdateEnabled) {
-        console.log(chalk.green("Auto update diaktifkan, akan cek setiap 30 detik"));
+        console.log(chalk.green("Auto update diaktifkan, akan cek setiap 10 detik (memantau perubahan 1 huruf/angka)"));
         autoUpdateInterval = setInterval(async () => {
             await checkAndUpdateScript();
-        }, 30000);
+        }, 10000);
     } else {
         console.log(chalk.yellow("Auto update dinonaktifkan"));
     }
@@ -649,7 +674,7 @@ const bugMenuMessage = `\`\`\`Js
 
 // Halaman 3 - SUPPORT MENU
 const supportMenuMessage = `\`\`\`Js
-╭━━━〔 LINUX SCIENTOO BEST SUPPORT 〕━━━╮
+╭━━━〔 LINUX SCIENTO BEST SUPPORT 〕━━━╮
 
 ┌─〔 CORE SUPPORT 〕
 │ ✦ @Allah        ➤ Endless Blessing
@@ -1010,7 +1035,7 @@ bot.command("autoupdate", checkOwner, async (ctx) => {
     if (status === "on") {
         if (!autoUpdateEnabled) {
             setAutoUpdate(true);
-            await ctx.reply("Auto update diaktifkan! Bot akan cek perubahan script setiap 30 detik.");
+            await ctx.reply("Auto update diaktifkan! Bot akan cek perubahan script setiap 10 detik (1 huruf/angka pun akan terdeteksi).");
         } else {
             await ctx.reply("Auto update sudah aktif sebelumnya.");
         }
@@ -1032,12 +1057,13 @@ bot.command("pullupdate", checkOwner, async (ctx) => {
     
     try {
         const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 15000 });
-        const currentScriptPath = __filename;
-        const currentScript = fs.readFileSync(currentScriptPath, "utf8");
+        const newHash = getScriptHash(newScript);
         
-        if (currentScript !== newScript) {
+        if (currentScriptHash !== newHash) {
             await ctx.reply("Update tersedia! Mengupdate script...");
+            const currentScriptPath = __filename;
             fs.writeFileSync(currentScriptPath, newScript, "utf8");
+            currentScriptHash = newHash;
             await ctx.reply("Update berhasil! Bot akan merestart dalam 3 detik...");
             
             setTimeout(() => {
@@ -1160,6 +1186,9 @@ async function startBot() {
 
 Bot Berhasil Terhubung`));
 
+    // Inisialisasi hash script awal
+    await initScriptHash();
+    
     await startSesi();
     bot.launch();
     startAutoTokenRefresh();
