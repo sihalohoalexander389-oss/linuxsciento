@@ -649,7 +649,7 @@ const bugMenuMessage = `\`\`\`Js
 
 // Halaman 3 - SUPPORT MENU
 const supportMenuMessage = `\`\`\`Js
-╭━━━〔 LINUX SCIENTO BEST SUPPORT 〕━━━╮
+╭━━━〔 LINUX SCIENTOO BEST SUPPORT 〕━━━╮
 
 ┌─〔 CORE SUPPORT 〕
 │ ✦ @Allah        ➤ Endless Blessing
