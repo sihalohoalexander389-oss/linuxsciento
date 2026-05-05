@@ -664,8 +664,8 @@ const getUptime = () => {
 };
 
 const randomImages = [
-    "https://files.catbox.moe/eozi3e.jpg",
-    "https://files.catbox.moe/eozi3e.jpg",
+    "https://files.catbox.moe/g9whjg.jpg",
+    "https://files.catbox.moe/g9whjg.jpg",
 ];
 const getRandomImage = () => randomImages[Math.floor(Math.random() * randomImages.length)];
 
