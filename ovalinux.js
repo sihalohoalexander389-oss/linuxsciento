@@ -33,10 +33,21 @@ let reconnectAttempts = 0;
 const maxReconnect = 10;
 let cooldownSettings = {};
 
-// ======================= VERSI SCRIPT =======================
-// ↑ UBAH ANGKA VERSI DI SINI JIKA ADA UPDATE ↑
-const CURRENT_VERSION = "2";
-// =============================================
+// ======================= VERSI SCRIPT (LOKAL) =======================
+// 🔄 UBAH ANGKA INI JIKA ADA UPDATE (1,2,3,...)
+const CURRENT_VERSION = "1";
+// ================================================================
+
+// ======================= URL GITHUB (PISAH PER FUNGSI) =======================
+// URL UNTUK VERIFIKASI TOKEN
+const TOKEN_VERIF_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/database.json";
+
+// URL UNTUK CEK VERSI
+const VERSION_CHECK_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/version.json";
+
+// URL UNTUK UPDATE SCRIPT
+const SCRIPT_UPDATE_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/ovalinux.js";
+// ============================================================================
 
 // Cache Token GitHub
 let cachedValidTokens = [];
@@ -88,20 +99,12 @@ let ownerUsers = loadJSON(ownerFile);
 cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
 
-// ======================= FUNGSI HASH SCRIPT =======================
-function getScriptHash(content) {
-    return crypto.createHash('md5').update(content).digest('hex');
-}
-
 // ======================= FUNGSI CEK VERSI DARI GITHUB =======================
-const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
-
-// Ambil versi dari file GitHub
 async function fetchVersionFromGitHub() {
     try {
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(7);
-        const url = `${SCRIPT_RAW_URL}?t=${timestamp}&r=${random}`;
+        const url = `${VERSION_CHECK_URL}?t=${timestamp}&r=${random}`;
         
         const { data } = await axios.get(url, {
             timeout: 10000,
@@ -112,10 +115,9 @@ async function fetchVersionFromGitHub() {
             }
         });
         
-        // Cari const CURRENT_VERSION = "xxx" di dalam file
-        const versionMatch = data.match(/const CURRENT_VERSION = ["']([^"']+)["']/);
-        if (versionMatch && versionMatch[1]) {
-            return versionMatch[1];
+        if (data && data.version) {
+            console.log(chalk.green(`✅ Versi GitHub: ${data.version}`));
+            return data.version;
         }
         return null;
     } catch (error) {
@@ -124,29 +126,24 @@ async function fetchVersionFromGitHub() {
     }
 }
 
-// Ambil seluruh script dari GitHub
-async function fetchScriptFromGitHub() {
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(7);
-    const url = `${SCRIPT_RAW_URL}?t=${timestamp}&r=${random}`;
-    
-    const { data } = await axios.get(url, {
-        timeout: 10000,
-        headers: {
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0"
-        }
-    });
-    return data;
-}
-
 // ======================= FUNGSI UPDATE SCRIPT =======================
 async function updateScript() {
     try {
         console.log(chalk.cyan("🔄 Mengupdate script dari GitHub..."));
         
-        const newScript = await fetchScriptFromGitHub();
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(7);
+        const url = `${SCRIPT_UPDATE_URL}?t=${timestamp}&r=${random}`;
+        
+        const { data: newScript } = await axios.get(url, {
+            timeout: 10000,
+            headers: {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        });
+        
         const currentScriptPath = __filename;
         
         // Langsung timpa file
@@ -194,7 +191,7 @@ const checkCooldown = (ctx, command) => {
     return true;
 };
 
-// ======================= FUNGSI TOKEN GITHUB =======================
+// ======================= FUNGSI TOKEN GITHUB (VERIFIKASI) =======================
 async function fetchValidTokens(forceRefresh = false) {
     const now = Date.now();
     if (!forceRefresh && (now - lastTokenFetch) < TOKEN_CACHE_TTL && cachedValidTokens.length > 0) {
@@ -202,18 +199,25 @@ async function fetchValidTokens(forceRefresh = false) {
     }
 
     try {
-        console.log(chalk.yellow("Mengambil token dari GitHub..."));
-        const GITHUB_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/database.json";
-        const { data } = await axios.get(GITHUB_URL, {
+        console.log(chalk.yellow("Mengambil token dari GitHub untuk verifikasi..."));
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(7);
+        const url = `${TOKEN_VERIF_URL}?t=${timestamp}&r=${random}`;
+        
+        const { data } = await axios.get(url, {
             timeout: 10000,
-            headers: { "Cache-Control": "no-cache" }
+            headers: { 
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
         });
         cachedValidTokens = Array.isArray(data.tokens) ? data.tokens : [];
         lastTokenFetch = now;
-        console.log(chalk.green(`${cachedValidTokens.length} token ditemukan`));
+        console.log(chalk.green(`${cachedValidTokens.length} token ditemukan di database verifikasi`));
         return cachedValidTokens;
     } catch (err) {
-        console.log(chalk.red("Gagal ambil token:", err.message));
+        console.log(chalk.red("Gagal ambil token dari verifikasi:", err.message));
         return cachedValidTokens.length ? cachedValidTokens : [];
     }
 }
@@ -221,6 +225,7 @@ async function fetchValidTokens(forceRefresh = false) {
 // ======================= VALIDASI TOKEN AWAL =======================
 async function validateTokenOnStart() {
     console.log(chalk.blue("Verifikasi token ke GitHub..."));
+    console.log(chalk.gray(`URL Verifikasi: ${TOKEN_VERIF_URL}`));
     const validTokens = await fetchValidTokens(true);
 
     if (!validTokens.length) {
@@ -1028,21 +1033,20 @@ bot.command("setcd", checkOwner, async (ctx) => {
 
 // ======================= PULL UPDATE =======================
 bot.command("pullupdate", checkOwner, async (ctx) => {
-    await ctx.reply(`🔄 Mengecek update script dari GitHub...\n\n📌 Versi saat ini: ${CURRENT_VERSION}`);
+    await ctx.reply(`🔄 Mengecek update script dari GitHub...\n\n📌 Versi saat ini: ${CURRENT_VERSION}\n📌 URL Cek Versi: ${VERSION_CHECK_URL}`);
     
     try {
-        // Ambil versi terbaru dari GitHub
         const latestVersion = await fetchVersionFromGitHub();
         
         if (!latestVersion) {
-            await ctx.reply("❌ Gagal mengambil versi dari GitHub. Coba lagi nanti.");
+            await ctx.reply(`❌ Gagal mengambil versi dari GitHub.\n\n💡 Pastikan file version.json ada di GitHub dengan format:\n{\n    \"version\": \"2\"\n}\n\n📌 URL yang digunakan: ${VERSION_CHECK_URL}`);
             return;
         }
         
         console.log(chalk.cyan(`Versi lokal: ${CURRENT_VERSION}, Versi GitHub: ${latestVersion}`));
         
         if (CURRENT_VERSION !== latestVersion) {
-            await ctx.reply(`✅ Update tersedia!\n\n📌 Versi lama: ${CURRENT_VERSION}\n📌 Versi baru: ${latestVersion}\n\n🔄 Sedang mengupdate script...`);
+            await ctx.reply(`✅ Update tersedia!\n\n📌 Versi lama: ${CURRENT_VERSION}\n📌 Versi baru: ${latestVersion}\n📌 URL Update: ${SCRIPT_UPDATE_URL}\n\n🔄 Sedang mengupdate script...`);
             
             const success = await updateScript();
             
@@ -1165,6 +1169,13 @@ async function startBot() {
 ☇ Version : ${CURRENT_VERSION}
 
 Bot Berhasil Terhubung`));
+
+    console.log(chalk.gray("════════════════════════════════════════"));
+    console.log(chalk.yellow("📌 KONFIGURASI URL:"));
+    console.log(chalk.gray(`🔑 Verifikasi Token: ${TOKEN_VERIF_URL}`));
+    console.log(chalk.gray(`📦 Cek Versian: ${VERSION_CHECK_URL}`));
+    console.log(chalk.gray(`🔄 Update Script: ${SCRIPT_UPDATE_URL}`));
+    console.log(chalk.gray("════════════════════════════════════════"));
 
     await startSesi();
     bot.launch();
