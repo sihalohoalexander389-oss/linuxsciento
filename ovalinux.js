@@ -35,7 +35,7 @@ let cooldownSettings = {};
 
 // ======================= VERSI SCRIPT =======================
 // ↑ UBAH ANGKA VERSI DI SINI JIKA ADA UPDATE ↑
-const CURRENT_VERSION = "2";
+const CURRENT_VERSION = "1";
 // =============================================
 
 // Cache Token GitHub
