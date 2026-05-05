@@ -701,7 +701,7 @@ const getRandomImage = () => randomImages[Math.floor(Math.random() * randomImage
 
 const mainMenuMessage = (Name, waktuRunPanel) => `\`\`\`Js
 𖥂 Linux Scientoo 𖥂
-Powerful • Secure • Exclusive
+Powerful • Secure • Exclusiveee
 
 Owners : @ItsImLxanderX5
 My Best Friend : @penzoyzy29
