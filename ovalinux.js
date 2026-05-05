@@ -43,7 +43,7 @@ const CURRENT_VERSION = "1";
 const TOKEN_VERIF_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/database.json";
 
 // URL UNTUK CEK VERSI
-const VERSION_CHECK_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/version.json";
+const VERSION_CHECK_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/version.json";
 
 // URL UNTUK UPDATE SCRIPT
 const SCRIPT_UPDATE_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/ovalinux.js";
