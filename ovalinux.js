@@ -23,6 +23,7 @@ const adminFile = "./Stored/admins.json";
 const ownerFile = "./Stored/owners.json";
 const cooldownFile = "./Stored/cooldown.json";
 const settingsFile = "./Stored/settings.json";
+const versionFile = "./Stored/version.txt";
 
 // ======================= VARIABEL GLOBAL =======================
 let sock = null;
@@ -37,14 +38,12 @@ let cooldownSettings = {};
 let lastUpdateTime = 0;
 const UPDATE_COOLDOWN_MS = 15000; // 15 detik
 
+// ======================= VERSI LOKAL =======================
+let localVersion = "1";
+
 // ======================= URL GITHUB =======================
-// URL UNTUK VERIFIKASI TOKEN
 const TOKEN_VERIF_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/database.json";
-
-// URL UNTUK CEK VERSI
 const VERSION_CHECK_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/version.json";
-
-// URL UNTUK UPDATE SCRIPT
 const SCRIPT_UPDATE_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/ovalinux.js";
 
 // Cache Token GitHub
@@ -97,12 +96,9 @@ let ownerUsers = loadJSON(ownerFile);
 cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
 
-// ======================= FUNGSI AMBIL VERSI LOKAL (dari file sementara) =======================
-let localVersion = "1";
-
-async function loadLocalVersion() {
+// ======================= FUNGSI VERSI LOKAL =======================
+function loadLocalVersion() {
     try {
-        const versionFile = "./Stored/version.txt";
         if (fs.existsSync(versionFile)) {
             localVersion = fs.readFileSync(versionFile, "utf8").trim();
         } else {
@@ -112,13 +108,15 @@ async function loadLocalVersion() {
         console.log(chalk.green(`📌 Versi lokal: ${localVersion}`));
     } catch (err) {
         console.log(chalk.red("Gagal baca versi lokal:", err.message));
+        localVersion = "1";
     }
 }
 
 function saveLocalVersion(version) {
     try {
-        fs.writeFileSync("./Stored/version.txt", version);
+        fs.writeFileSync(versionFile, version);
         localVersion = version;
+        console.log(chalk.green(`📌 Versi lokal disimpan: ${localVersion}`));
     } catch (err) {
         console.log(chalk.red("Gagal simpan versi lokal:", err.message));
     }
@@ -152,13 +150,13 @@ async function fetchVersionFromGitHub() {
 }
 
 // ======================= FUNGSI UPDATE SCRIPT =======================
-async function updateScript() {
+async function updateScript(ctx, newVersion) {
     const now = Date.now();
     const timeSinceLastUpdate = now - lastUpdateTime;
     
     if (lastUpdateTime > 0 && timeSinceLastUpdate < UPDATE_COOLDOWN_MS) {
         const remainingSeconds = Math.ceil((UPDATE_COOLDOWN_MS - timeSinceLastUpdate) / 1000);
-        console.log(chalk.yellow(`⏳ Cooldown: tunggu ${remainingSeconds} detik lagi untuk update`));
+        await ctx.reply(`⏳ Cooldown! Tunggu ${remainingSeconds} detik lagi untuk update.`);
         return false;
     }
     
@@ -180,11 +178,15 @@ async function updateScript() {
         
         const currentScriptPath = __filename;
         
+        // Simpan versi baru sebelum update
+        saveLocalVersion(newVersion);
+        
+        // Tulis script baru
         fs.writeFileSync(currentScriptPath, newScript, "utf8");
         
         lastUpdateTime = Date.now();
         
-        console.log(chalk.green("✅ Update berhasil!"));
+        console.log(chalk.green(`✅ Update berhasil! Versi lama: ${localVersion} → Versi baru: ${newVersion}`));
         console.log(chalk.yellow(`⏰ Cooldown 15 detik, next update bisa setelah ${new Date(lastUpdateTime + UPDATE_COOLDOWN_MS).toLocaleTimeString()}`));
         
         setTimeout(() => {
@@ -1067,6 +1069,16 @@ bot.command("setcd", checkOwner, async (ctx) => {
 
 // ======================= PULL UPDATE =======================
 bot.command("pullupdate", checkOwner, async (ctx) => {
+    // Cek cooldown update dulu
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastUpdateTime;
+    
+    if (lastUpdateTime > 0 && timeSinceLastUpdate < UPDATE_COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil((UPDATE_COOLDOWN_MS - timeSinceLastUpdate) / 1000);
+        await ctx.reply(`⏳ Cooldown! Tunggu ${remainingSeconds} detik lagi untuk update.`);
+        return;
+    }
+    
     await ctx.reply("🔄 Mengecek update...");
     
     try {
@@ -1077,12 +1089,12 @@ bot.command("pullupdate", checkOwner, async (ctx) => {
             return;
         }
         
-        console.log(chalk.cyan(`Versi lokal: ${localVersion}, Versi GitHub: ${latestVersion}`));
+        console.log(chalk.cyan(`📌 Versi lokal: ${localVersion}, Versi GitHub: ${latestVersion}`));
         
         if (localVersion !== latestVersion) {
             await ctx.reply(`✅ Update tersedia! Versi ${latestVersion}`);
             
-            const success = await updateScript();
+            const success = await updateScript(ctx, latestVersion);
             
             if (success) {
                 await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
@@ -1090,7 +1102,7 @@ bot.command("pullupdate", checkOwner, async (ctx) => {
                 await ctx.reply("❌ Gagal update.");
             }
         } else {
-            await ctx.reply("📌 Script masih versi terbaru.");
+            await ctx.reply(`📌 Script masih versi terbaru. (Versi ${localVersion})`);
         }
     } catch (error) {
         console.error(chalk.red("Gagal update:", error.message));
@@ -1209,7 +1221,7 @@ Bot Berhasil Terhubung`));
     startAutoTokenRefresh();
 
     console.log(chalk.green("Bot Telegram berjalan..."));
-    console.log(chalk.yellow(`📌 Versi: ${localVersion}`));
+    console.log(chalk.yellow(`📌 Versi saat ini: ${localVersion}`));
 }
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
