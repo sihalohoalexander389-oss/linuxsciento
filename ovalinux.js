@@ -23,6 +23,7 @@ const adminFile = "./Stored/admins.json";
 const ownerFile = "./Stored/owners.json";
 const cooldownFile = "./Stored/cooldown.json";
 const settingsFile = "./Stored/settings.json";
+const scriptHashFile = "./Stored/scripthash.json";
 
 // ======================= VARIABEL GLOBAL =======================
 let sock = null;
@@ -35,6 +36,10 @@ let autoUpdateEnabled = false;
 let autoUpdateInterval = null;
 let cooldownSettings = {};
 let currentScriptHash = "";
+
+// UPDATE COOLDOWN (30 detik)
+let lastUpdateTime = 0;
+const UPDATE_COOLDOWN_MS = 30000; // 30 detik
 
 // Cache Token GitHub
 let cachedValidTokens = [];
@@ -85,14 +90,29 @@ let premiumUsers = loadJSON(premiumFile);
 let ownerUsers = loadJSON(ownerFile);
 cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
-autoUpdateEnabled = settings.autoUpdate || false;
 
-// ======================= FUNGSI HASH SCRIPT =======================
+autoUpdateEnabled = settings.autoUpdate === true;
+
+function loadSavedScriptHash() {
+    try {
+        if (fs.existsSync(scriptHashFile)) {
+            const data = JSON.parse(fs.readFileSync(scriptHashFile, "utf8"));
+            return data.hash || "";
+        }
+    } catch (err) {}
+    return "";
+}
+
+function saveScriptHash(hash) {
+    try {
+        fs.writeFileSync(scriptHashFile, JSON.stringify({ hash: hash, updatedAt: Date.now() }, null, 2));
+    } catch (err) {}
+}
+
 function getScriptHash(content) {
     return crypto.createHash('md5').update(content).digest('hex');
 }
 
-// ======================= FUNGSI COOLDOWN =======================
 const setCooldown = (command, duration) => {
     cooldownSettings[command] = duration;
     saveJSON(cooldownFile, cooldownSettings);
@@ -120,65 +140,129 @@ const checkCooldown = (ctx, command) => {
     return true;
 };
 
-// ======================= FUNGSI CEK DAN UPDATE SCRIPT =======================
 const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/ovalinux.js";
 
-// Inisialisasi hash awal saat bot start
+async function fetchScriptWithNoCache() {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(7);
+    const url = `${SCRIPT_RAW_URL}?t=${timestamp}&r=${random}`;
+    
+    const { data } = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "If-None-Match": "",
+            "If-Modified-Since": "Thu, 01 Jan 1970 00:00:00 GMT"
+        }
+    });
+    return data;
+}
+
 async function initScriptHash() {
     try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
+        const newScript = await fetchScriptWithNoCache();
         currentScriptHash = getScriptHash(newScript);
-        console.log(chalk.green(`Hash awal script: ${currentScriptHash.substring(0, 16)}...`));
+        
+        const savedHash = loadSavedScriptHash();
+        if (savedHash !== currentScriptHash) {
+            saveScriptHash(currentScriptHash);
+        }
+        
+        console.log(chalk.green(`✅ Hash awal script: ${currentScriptHash.substring(0, 16)}...`));
+        console.log(chalk.green(`📌 Auto update status: ${autoUpdateEnabled ? 'ON' : 'OFF (default)'}`));
         return true;
     } catch (error) {
-        console.log(chalk.red("Gagal mengambil hash awal:", error.message));
+        console.log(chalk.red("❌ Gagal mengambil hash awal:", error.message));
+        currentScriptHash = loadSavedScriptHash();
+        if (currentScriptHash) {
+            console.log(chalk.yellow(`📁 Menggunakan hash tersimpan: ${currentScriptHash.substring(0, 16)}...`));
+        }
         return false;
     }
 }
 
-async function checkAndUpdateScript() {
+async function checkAndUpdateScript(isManual = false) {
+    // Cek cooldown update (30 detik setelah update terakhir)
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastUpdateTime;
+    
+    if (lastUpdateTime > 0 && timeSinceLastUpdate < UPDATE_COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil((UPDATE_COOLDOWN_MS - timeSinceLastUpdate) / 1000);
+        console.log(chalk.yellow(`⏳ Cooldown update: masih harus menunggu ${remainingSeconds} detik sebelum bisa update lagi`));
+        
+        if (isManual) {
+            // Tidak reply ke user, hanya console log
+            console.log(chalk.yellow(`📌 Script tidak bisa dicek/update, cooldown ${remainingSeconds} detik lagi`));
+        }
+        return false;
+    }
+    
     try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 10000 });
+        console.log(chalk.cyan(`${isManual ? '[MANUAL]' : '[AUTO]'} 🔍 Mengecek update script...`));
+        
+        const newScript = await fetchScriptWithNoCache();
         const newHash = getScriptHash(newScript);
         
-        // Bandingkan hash, jika beda berarti ada perubahan (1 huruf/angka pun beda)
+        console.log(chalk.gray(`   Hash saat ini: ${currentScriptHash.substring(0, 16)}...`));
+        console.log(chalk.gray(`   Hash GitHub  : ${newHash.substring(0, 16)}...`));
+        
         if (currentScriptHash !== newHash) {
-            console.log(chalk.yellow(`Hash berubah! Old: ${currentScriptHash.substring(0,16)}... New: ${newHash.substring(0,16)}...`));
-            console.log(chalk.yellow("Terdeteksi perubahan script! Mengupdate..."));
+            console.log(chalk.yellow(`⚠️ PERUBAHAN DETEKSI!`));
+            console.log(chalk.yellow(`   Old: ${currentScriptHash.substring(0,16)}...`));
+            console.log(chalk.yellow(`   New: ${newHash.substring(0,16)}...`));
+            console.log(chalk.yellow("🔄 Mengupdate script..."));
             
             const currentScriptPath = __filename;
+            
             fs.writeFileSync(currentScriptPath, newScript, "utf8");
             currentScriptHash = newHash;
+            saveScriptHash(newHash);
             
-            console.log(chalk.green("Update berhasil! Bot akan merestart..."));
+            // Set last update time
+            lastUpdateTime = Date.now();
             
-            if (autoUpdateEnabled) {
+            console.log(chalk.green("✅ Update berhasil! File langsung diganti dengan code baru dari GitHub"));
+            console.log(chalk.yellow(`⏰ Cooldown update: 30 detik, tidak akan ada update sampai ${new Date(lastUpdateTime + UPDATE_COOLDOWN_MS).toLocaleTimeString()}`));
+            
+            if (autoUpdateEnabled || isManual) {
+                console.log(chalk.yellow("🔄 Bot akan merestart dalam 2 detik..."));
                 setTimeout(() => {
                     process.exit(0);
                 }, 2000);
             }
             return true;
+        } else {
+            if (isManual) {
+                console.log(chalk.green("✅ Script masih versi terbaru"));
+            }
+            return false;
         }
-        return false;
     } catch (error) {
-        console.log(chalk.red("Gagal cek update:", error.message));
+        console.log(chalk.red("❌ Gagal cek update:", error.message));
         return false;
     }
 }
 
-// ======================= FUNGSI AUTO UPDATE =======================
 function startAutoUpdate() {
     if (autoUpdateInterval) {
         clearInterval(autoUpdateInterval);
+        autoUpdateInterval = null;
+        console.log(chalk.yellow("⏹️ Auto update interval sebelumnya dihentikan"));
     }
     
     if (autoUpdateEnabled) {
-        console.log(chalk.green("Auto update diaktifkan, akan cek setiap 10 detik (memantau perubahan 1 huruf/angka)"));
+        console.log(chalk.green("✅ Auto update DIAKTIFKAN!"));
+        console.log(chalk.green(`⏱️ Akan mengecek perubahan script setiap 3 DETIK`));
+        console.log(chalk.yellow(`⏰ Cooldown update: 30 detik setelah setiap update`));
+        
         autoUpdateInterval = setInterval(async () => {
-            await checkAndUpdateScript();
-        }, 10000);
+            await checkAndUpdateScript(false);
+        }, 3000);
     } else {
-        console.log(chalk.yellow("Auto update dinonaktifkan"));
+        console.log(chalk.yellow("⏸️ Auto update DINONAKTIFKAN (default)"));
+        console.log(chalk.yellow("💡 Gunakan /autoupdate on untuk mengaktifkan"));
     }
 }
 
@@ -189,7 +273,6 @@ function setAutoUpdate(enabled) {
     startAutoUpdate();
 }
 
-// ======================= FUNGSI TOKEN GITHUB =======================
 async function fetchValidTokens(forceRefresh = false) {
     const now = Date.now();
     if (!forceRefresh && (now - lastTokenFetch) < TOKEN_CACHE_TTL && cachedValidTokens.length > 0) {
@@ -213,7 +296,6 @@ async function fetchValidTokens(forceRefresh = false) {
     }
 }
 
-// ======================= VALIDASI TOKEN AWAL =======================
 async function validateTokenOnStart() {
     console.log(chalk.blue("Verifikasi token ke GitHub..."));
     const validTokens = await fetchValidTokens(true);
@@ -242,7 +324,6 @@ async function validateTokenOnStart() {
     return true;
 }
 
-// ======================= AUTO REFRESH TOKEN =======================
 function startAutoTokenRefresh() {
     setInterval(async () => {
         const newTokens = await fetchValidTokens(true);
@@ -253,7 +334,6 @@ function startAutoTokenRefresh() {
     }, 60000);
 }
 
-// ======================= SESSION & WHATSAPP =======================
 function deleteSession() {
     try {
         if (fs.existsSync(sessionPath)) {
@@ -345,7 +425,6 @@ const startSesi = async () => {
     });
 };
 
-// ======================= MIDDLEWARE =======================
 const checkOwner = (ctx, next) => {
     if (!OWNER_IDS.includes(ctx.from.id.toString())) {
         return ctx.reply("Fitur Ini Khusus Owner");
@@ -374,7 +453,6 @@ const checkWA = (ctx, next) => {
     return next();
 };
 
-// ======================= FUNGSI ADMIN/PREMIUM/OWNER =======================
 const addOwner = (id) => { if (!ownerUsers.includes(id)) { ownerUsers.push(id); saveJSON(ownerFile, ownerUsers); } };
 const removeOwner = (id) => { ownerUsers = ownerUsers.filter(i => i !== id); saveJSON(ownerFile, ownerUsers); };
 const addAdmin = (id) => { if (!adminUsers.includes(id)) { adminUsers.push(id); saveJSON(adminFile, adminUsers); } };
@@ -382,7 +460,6 @@ const removeAdmin = (id) => { adminUsers = adminUsers.filter(i => i !== id); sav
 const addPremium = (id) => { if (!premiumUsers.includes(id)) { premiumUsers.push(id); saveJSON(premiumFile, premiumUsers); } };
 const removePremium = (id) => { premiumUsers = premiumUsers.filter(i => i !== id); saveJSON(premiumFile, premiumUsers); };
 
-// ======================= FUNGSI BUG =======================
 async function spamdelay(sock, target) {
     for (let i = 0; i < 999; i++) {
         const x = "\u0000".repeat(9000);
@@ -606,7 +683,6 @@ async function hapusBug(sock, target) {
     }
 }
 
-// ======================= COMMAND TELEGRAM =======================
 bot.use(session());
 
 const getUptime = () => {
@@ -623,7 +699,6 @@ const randomImages = [
 ];
 const getRandomImage = () => randomImages[Math.floor(Math.random() * randomImages.length)];
 
-// Halaman 0 - MENU UTAMA
 const mainMenuMessage = (Name, waktuRunPanel) => `\`\`\`Js
 𖥂 Linux Sciento 𖥂
 Powerful • Secure • Exclusive
@@ -634,10 +709,9 @@ My Best Friend : @penzoyzy29
 Harga Users : Rp25.000
 Harga Reseller : Rp30.000
 
-Klik button di bawah untuk melanjutkann
+Klik button di bawah untuk melanjutkan
 \`\`\``;
 
-// Halaman 1 - OWNER MENU
 const ownerMenuMessage = `\`\`\`Js
 ⬡═—⊱ AKSES OWNER ⊰—═⬡
 • /addowner → TAMBAH OWNER
@@ -662,7 +736,6 @@ const ownerMenuMessage = `\`\`\`Js
 • /listbot → CEK SENDER AKTIF
 \`\`\``;
 
-// Halaman 2 - BUG MENU
 const bugMenuMessage = `\`\`\`Js
 ⬡═—⊱ BUG MENU ⊰—═⬡
 • /Apidelay → DELAY INVISIBLE
@@ -672,7 +745,6 @@ const bugMenuMessage = `\`\`\`Js
 • /hapusbug → HAPUS BUG YANG DIKIRIM
 \`\`\``;
 
-// Halaman 3 - SUPPORT MENU
 const supportMenuMessage = `\`\`\`Js
 ╭━━━〔 LINUX SCIENTO BEST SUPPORT 〕━━━╮
 
@@ -686,9 +758,7 @@ const supportMenuMessage = `\`\`\`Js
 │ ✦ @ItsImLxanderX5
 │ ✦ @arshadeva
 │ ✦ All buyer and member Linux Sciento
-└────────────────────
-
-┌─〔 SPECIAL THANKS 〕
+└────────────────────┌─〔 SPECIAL THANKS 〕
 │ ✦ Semua Member Linux Sciento
 │ ✦ Semua Yang Pernah Support
 └────────────────────
@@ -700,7 +770,6 @@ King : @ItsImLxanderX5
 Friend: @penzoyzy29
 \`\`\``;
 
-// Keyboard untuk setiap halaman
 const getKeyboard = (currentPage, totalPages) => {
     const keyboard = [
         [
@@ -730,7 +799,6 @@ const getKeyboard = (currentPage, totalPages) => {
     };
 };
 
-// Handler navigasi
 bot.action(/nav_(prev|next|page)/, async (ctx) => {
     const action = ctx.match[1];
     const currentPage = ctx.session?.currentPage || 0;
@@ -777,7 +845,6 @@ bot.action(/nav_(prev|next|page)/, async (ctx) => {
     await ctx.answerCbQuery();
 });
 
-// Command /start
 bot.start(async (ctx) => {
     const Name = ctx.from.username ? `@${ctx.from.username}` : `${ctx.from.id}`;
     const waktuRunPanel = getUptime();
@@ -792,7 +859,6 @@ bot.start(async (ctx) => {
     });
 });
 
-// ======================= COMMAND BUG =======================
 bot.command("Apidelay", checkWA, checkPremium, async (ctx) => {
     if (!checkCooldown(ctx, "Apidelay")) return;
     
@@ -930,21 +996,15 @@ bot.command("hapusbug", checkWA, checkPremium, async (ctx) => {
     });
 
     (async () => {
-        try {
-            for (let i = 0; i < 3; i++) {
-                console.log(chalk.red(`Send Clear Bug ${i + 1} To ${target}`));
-                await hapusBug(sock, jid);
-                await sleep(1000);
-            }
-            await ctx.reply("Done Clear Bug By Linux Sciento");
-        } catch (err) {
-            console.error("Error:", err);
-            await ctx.reply("Ada kesalahan saat mengirim bug.");
+        for (let i = 0; i < 3; i++) {
+            console.log(chalk.red(`Send Clear Bug ${i + 1} To ${target}`));
+            await hapusBug(sock, jid);
+            await sleep(1000);
         }
+        await ctx.reply("Done Clear Bug By Linux Sciento");
     })();
 });
 
-// ======================= COMMAND ADMIN & OWNER =======================
 bot.command("addowner", checkOwner, (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 2) return ctx.reply("Format Salah!. Example: /addowner 12345678");
@@ -1005,7 +1065,6 @@ bot.command("cekprem", (ctx) => {
     else return ctx.reply(`Anda bukan pengguna premium.`);
 });
 
-// ======================= SET COOLDOWN =======================
 bot.command("setcd", checkOwner, async (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 3) return ctx.reply("Format Salah!. Example: /setcd Apidelay 5d\n\nd = detik\nm = menit\nj = jam");
@@ -1025,7 +1084,6 @@ bot.command("setcd", checkOwner, async (ctx) => {
     return ctx.reply(`Cooldown untuk /${command} telah diatur ke ${durationStr}`);
 });
 
-// ======================= AUTO UPDATE =======================
 bot.command("autoupdate", checkOwner, async (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 2) return ctx.reply("Format Salah!. Example: /autoupdate on\n/autoupdate off");
@@ -1035,50 +1093,49 @@ bot.command("autoupdate", checkOwner, async (ctx) => {
     if (status === "on") {
         if (!autoUpdateEnabled) {
             setAutoUpdate(true);
-            await ctx.reply("Auto update diaktifkan! Bot akan cek perubahan script setiap 10 detik (1 huruf/angka pun akan terdeteksi).");
+            await ctx.reply(`✅ Auto update DIAKTIFKAN!
+            
+⏱️ Interval pengecekan: 3 DETIK
+⏰ Cooldown update: 30 DETIK (tidak bisa update 2x dalam 30 detik)
+📡 Setiap perubahan 1 huruf/angka akan langsung terdeteksi
+🔄 Bot akan otomatis restart jika ada update
+
+💡 Gunakan /autoupdate off untuk menonaktifkan`);
         } else {
-            await ctx.reply("Auto update sudah aktif sebelumnya.");
+            await ctx.reply("⚠️ Auto update sudah aktif sebelumnya.");
         }
     } else if (status === "off") {
         if (autoUpdateEnabled) {
             setAutoUpdate(false);
-            await ctx.reply("Auto update dinonaktifkan.");
+            await ctx.reply(`⏸️ Auto update DINONAKTIFKAN.
+            
+📌 Bot tidak akan mengecek update secara otomatis.
+💡 Gunakan /pullupdate untuk mengecek update secara manual.`);
         } else {
-            await ctx.reply("Auto update sudah nonaktif sebelumnya.");
+            await ctx.reply("ℹ️ Auto update sudah nonaktif sebelumnya.");
         }
     } else {
-        await ctx.reply("Format salah! Gunakan /autoupdate on atau /autoupdate off");
+        await ctx.reply("❌ Format salah! Gunakan:\n/autoupdate on\n/autoupdate off");
     }
 });
 
-// ======================= PULL UPDATE =======================
 bot.command("pullupdate", checkOwner, async (ctx) => {
-    await ctx.reply("Mengecek update script dari GitHub...");
+    await ctx.reply("🔄 Mengecek update script dari GitHub...");
     
     try {
-        const { data: newScript } = await axios.get(SCRIPT_RAW_URL, { timeout: 15000 });
-        const newHash = getScriptHash(newScript);
+        const updated = await checkAndUpdateScript(true);
         
-        if (currentScriptHash !== newHash) {
-            await ctx.reply("Update tersedia! Mengupdate script...");
-            const currentScriptPath = __filename;
-            fs.writeFileSync(currentScriptPath, newScript, "utf8");
-            currentScriptHash = newHash;
-            await ctx.reply("Update berhasil! Bot akan merestart dalam 3 detik...");
-            
-            setTimeout(() => {
-                process.exit(0);
-            }, 3000);
+        if (updated) {
+            await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
         } else {
-            await ctx.reply("Script masih versi terbaru! Tidak ada update tersedia.");
+            await ctx.reply("📌 Script masih versi terbaru! Tidak ada update tersedia.");
         }
     } catch (error) {
         console.error(chalk.red("Gagal update:", error.message));
-        await ctx.reply(`Gagal update: ${error.message}`);
+        await ctx.reply(`❌ Gagal update: ${error.message}`);
     }
 });
 
-// ======================= ADDBOT =======================
 bot.command("addbot", checkOwner, async (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 2) return await ctx.reply("Format Salah!. Example : /addbot 62812xxxx");
@@ -1118,11 +1175,9 @@ bot.command("addbot", checkOwner, async (ctx) => {
 
     } catch (error) {
         console.error(chalk.red("Gagal melakukan pairing:"), error);
-        await ctx.reply("Gagal melakukan pairing! Pastikan nomor WhatsApp valid.");
     }
 });
 
-// ======================= DELBOT =======================
 bot.command("delbot", checkOwner, async (ctx) => {
     const success = deleteSession();
     if (success) {
@@ -1134,7 +1189,6 @@ bot.command("delbot", checkOwner, async (ctx) => {
     }
 });
 
-// ======================= LISTBOT =======================
 bot.command("listbot", checkOwner, async (ctx) => {
     try {
         const waStatus = sock && sock.user && isWhatsAppConnected ? "Terhubung" : "Tidak Terhubung";
@@ -1149,7 +1203,6 @@ ${sock && sock.user ? `┃ NOMOR : ${linkedWhatsAppNumber || sock.user?.id?.spli
         await ctx.reply(message, { parse_mode: "Markdown" });
     } catch (error) {
         console.error("Gagal menampilkan status bot:", error);
-        ctx.reply("Gagal menampilkan status bot.");
     }
 });
 
@@ -1165,13 +1218,10 @@ bot.action("Close", async (ctx) => {
     }
 });
 
-// ======================= ERROR HANDLER =======================
 bot.catch((err, ctx) => {
     console.error(chalk.red(`Error untuk ${ctx.updateType}:`, err.message));
-    ctx.reply("Terjadi kesalahan, coba lagi nanti.").catch(() => {});
 });
 
-// ======================= START BOT =======================
 async function startBot() {
     console.log(chalk.blue(`
 ╭╮╱╭┳━━━┳╮╱╱╭╮╭╮╭━━━┳╮╱╭┳━━━╮
@@ -1186,7 +1236,6 @@ async function startBot() {
 
 Bot Berhasil Terhubung`));
 
-    // Inisialisasi hash script awal
     await initScriptHash();
     
     await startSesi();
@@ -1195,6 +1244,9 @@ Bot Berhasil Terhubung`));
     startAutoUpdate();
 
     console.log(chalk.green("Bot Telegram berjalan..."));
+    console.log(chalk.yellow(`📌 Auto Update: ${autoUpdateEnabled ? 'ON (3 detik)' : 'OFF (default)'}`));
+    console.log(chalk.yellow(`⏰ Cooldown update: 30 detik setelah setiap update`));
+    console.log(chalk.yellow("💡 Gunakan /autoupdate on untuk mengaktifkan auto update"));
 }
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
