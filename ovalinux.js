@@ -35,7 +35,7 @@ let cooldownSettings = {};
 
 // ======================= VERSI SCRIPT (LOKAL) =======================
 // 🔄 UBAH ANGKA INI JIKA ADA UPDATE (1,2,3,...)
-const CURRENT_VERSION = "1";
+const CURRENT_VERSION = "2";
 // ================================================================
 
 // ======================= URL GITHUB (PISAH PER FUNGSI) =======================
