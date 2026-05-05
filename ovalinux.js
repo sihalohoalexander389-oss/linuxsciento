@@ -33,21 +33,19 @@ let reconnectAttempts = 0;
 const maxReconnect = 10;
 let cooldownSettings = {};
 
-// ======================= VERSI SCRIPT (LOKAL) =======================
-// 🔄 UBAH ANGKA INI JIKA ADA UPDATE (1,2,3,...)
-const CURRENT_VERSION = "2";
-// ================================================================
+// ======================= LAST UPDATE TIME (COOLDOWN 15 DETIK) =======================
+let lastUpdateTime = 0;
+const UPDATE_COOLDOWN_MS = 15000; // 15 detik
 
-// ======================= URL GITHUB (PISAH PER FUNGSI) =======================
+// ======================= URL GITHUB =======================
 // URL UNTUK VERIFIKASI TOKEN
 const TOKEN_VERIF_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/database-/main/database.json";
 
 // URL UNTUK CEK VERSI
-const VERSION_CHECK_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/refs/heads/main/version.json";
+const VERSION_CHECK_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/version.json";
 
 // URL UNTUK UPDATE SCRIPT
 const SCRIPT_UPDATE_URL = "https://raw.githubusercontent.com/sihalohoalexander389-oss/linuxsciento/main/ovalinux.js";
-// ============================================================================
 
 // Cache Token GitHub
 let cachedValidTokens = [];
@@ -99,6 +97,33 @@ let ownerUsers = loadJSON(ownerFile);
 cooldownSettings = loadObjectJSON(cooldownFile);
 let settings = loadObjectJSON(settingsFile);
 
+// ======================= FUNGSI AMBIL VERSI LOKAL (dari file sementara) =======================
+let localVersion = "1";
+
+async function loadLocalVersion() {
+    try {
+        const versionFile = "./Stored/version.txt";
+        if (fs.existsSync(versionFile)) {
+            localVersion = fs.readFileSync(versionFile, "utf8").trim();
+        } else {
+            localVersion = "1";
+            fs.writeFileSync(versionFile, localVersion);
+        }
+        console.log(chalk.green(`📌 Versi lokal: ${localVersion}`));
+    } catch (err) {
+        console.log(chalk.red("Gagal baca versi lokal:", err.message));
+    }
+}
+
+function saveLocalVersion(version) {
+    try {
+        fs.writeFileSync("./Stored/version.txt", version);
+        localVersion = version;
+    } catch (err) {
+        console.log(chalk.red("Gagal simpan versi lokal:", err.message));
+    }
+}
+
 // ======================= FUNGSI CEK VERSI DARI GITHUB =======================
 async function fetchVersionFromGitHub() {
     try {
@@ -128,6 +153,15 @@ async function fetchVersionFromGitHub() {
 
 // ======================= FUNGSI UPDATE SCRIPT =======================
 async function updateScript() {
+    const now = Date.now();
+    const timeSinceLastUpdate = now - lastUpdateTime;
+    
+    if (lastUpdateTime > 0 && timeSinceLastUpdate < UPDATE_COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil((UPDATE_COOLDOWN_MS - timeSinceLastUpdate) / 1000);
+        console.log(chalk.yellow(`⏳ Cooldown: tunggu ${remainingSeconds} detik lagi untuk update`));
+        return false;
+    }
+    
     try {
         console.log(chalk.cyan("🔄 Mengupdate script dari GitHub..."));
         
@@ -146,11 +180,12 @@ async function updateScript() {
         
         const currentScriptPath = __filename;
         
-        // Langsung timpa file
         fs.writeFileSync(currentScriptPath, newScript, "utf8");
         
-        console.log(chalk.green("✅ Update berhasil! File langsung diganti dengan code baru dari GitHub"));
-        console.log(chalk.yellow("🔄 Bot akan merestart dalam 2 detik..."));
+        lastUpdateTime = Date.now();
+        
+        console.log(chalk.green("✅ Update berhasil!"));
+        console.log(chalk.yellow(`⏰ Cooldown 15 detik, next update bisa setelah ${new Date(lastUpdateTime + UPDATE_COOLDOWN_MS).toLocaleTimeString()}`));
         
         setTimeout(() => {
             process.exit(0);
@@ -191,7 +226,7 @@ const checkCooldown = (ctx, command) => {
     return true;
 };
 
-// ======================= FUNGSI TOKEN GITHUB (VERIFIKASI) =======================
+// ======================= FUNGSI TOKEN GITHUB =======================
 async function fetchValidTokens(forceRefresh = false) {
     const now = Date.now();
     if (!forceRefresh && (now - lastTokenFetch) < TOKEN_CACHE_TTL && cachedValidTokens.length > 0) {
@@ -199,7 +234,7 @@ async function fetchValidTokens(forceRefresh = false) {
     }
 
     try {
-        console.log(chalk.yellow("Mengambil token dari GitHub untuk verifikasi..."));
+        console.log(chalk.yellow("Mengambil token dari GitHub..."));
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(7);
         const url = `${TOKEN_VERIF_URL}?t=${timestamp}&r=${random}`;
@@ -214,10 +249,10 @@ async function fetchValidTokens(forceRefresh = false) {
         });
         cachedValidTokens = Array.isArray(data.tokens) ? data.tokens : [];
         lastTokenFetch = now;
-        console.log(chalk.green(`${cachedValidTokens.length} token ditemukan di database verifikasi`));
+        console.log(chalk.green(`${cachedValidTokens.length} token ditemukan`));
         return cachedValidTokens;
     } catch (err) {
-        console.log(chalk.red("Gagal ambil token dari verifikasi:", err.message));
+        console.log(chalk.red("Gagal ambil token:", err.message));
         return cachedValidTokens.length ? cachedValidTokens : [];
     }
 }
@@ -225,7 +260,6 @@ async function fetchValidTokens(forceRefresh = false) {
 // ======================= VALIDASI TOKEN AWAL =======================
 async function validateTokenOnStart() {
     console.log(chalk.blue("Verifikasi token ke GitHub..."));
-    console.log(chalk.gray(`URL Verifikasi: ${TOKEN_VERIF_URL}`));
     const validTokens = await fetchValidTokens(true);
 
     if (!validTokens.length) {
@@ -611,7 +645,7 @@ async function VnXCrashIos(sock, target) {
 async function hapusBug(sock, target) {
     for (let i = 0; i < 3; i++) {
         await sock.sendMessage(target, { 
-            text: "CIKIDAW CLEAR BUG\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nSENZY GANTENG"
+            text: "CIKIDAW CLEAR BUG"
         });
     }
 }
@@ -638,7 +672,7 @@ const mainMenuMessage = (Name, waktuRunPanel) => `\`\`\`Js
 𖥂 Linux Sciento 𖥂
 Powerful • Secure • Exclusive
 
-Version: ${CURRENT_VERSION}
+Version: ${localVersion}
 
 Owners : @ItsImLxanderX5
 My Best Friend : @penzoyzy29
@@ -1033,34 +1067,34 @@ bot.command("setcd", checkOwner, async (ctx) => {
 
 // ======================= PULL UPDATE =======================
 bot.command("pullupdate", checkOwner, async (ctx) => {
-    await ctx.reply(`🔄 Mengecek update script dari GitHub...\n\n📌 Versi saat ini: ${CURRENT_VERSION}\n📌 URL Cek Versi: ${VERSION_CHECK_URL}`);
+    await ctx.reply("🔄 Mengecek update...");
     
     try {
         const latestVersion = await fetchVersionFromGitHub();
         
         if (!latestVersion) {
-            await ctx.reply(`❌ Gagal mengambil versi dari GitHub.\n\n💡 Pastikan file version.json ada di GitHub dengan format:\n{\n    \"version\": \"2\"\n}\n\n📌 URL yang digunakan: ${VERSION_CHECK_URL}`);
+            await ctx.reply("❌ Gagal mengambil versi.");
             return;
         }
         
-        console.log(chalk.cyan(`Versi lokal: ${CURRENT_VERSION}, Versi GitHub: ${latestVersion}`));
+        console.log(chalk.cyan(`Versi lokal: ${localVersion}, Versi GitHub: ${latestVersion}`));
         
-        if (CURRENT_VERSION !== latestVersion) {
-            await ctx.reply(`✅ Update tersedia!\n\n📌 Versi lama: ${CURRENT_VERSION}\n📌 Versi baru: ${latestVersion}\n📌 URL Update: ${SCRIPT_UPDATE_URL}\n\n🔄 Sedang mengupdate script...`);
+        if (localVersion !== latestVersion) {
+            await ctx.reply(`✅ Update tersedia! Versi ${latestVersion}`);
             
             const success = await updateScript();
             
             if (success) {
                 await ctx.reply("✅ Update berhasil! Bot akan merestart dalam 3 detik...");
             } else {
-                await ctx.reply("❌ Gagal mengupdate script. Silakan coba lagi.");
+                await ctx.reply("❌ Gagal update.");
             }
         } else {
-            await ctx.reply(`📌 Script masih versi terbaru!\n\n📌 Versi saat ini: ${CURRENT_VERSION}\n💡 Tidak ada update tersedia.`);
+            await ctx.reply("📌 Script masih versi terbaru.");
         }
     } catch (error) {
         console.error(chalk.red("Gagal update:", error.message));
-        await ctx.reply(`❌ Gagal update: ${error.message}`);
+        await ctx.reply("❌ Gagal update.");
     }
 });
 
@@ -1166,24 +1200,16 @@ async function startBot() {
 » Information:
 ☇ Creator : @ItsImLxanderX5
 ☇ Name Script : Linux X5
-☇ Version : ${CURRENT_VERSION}
 
 Bot Berhasil Terhubung`));
 
-    console.log(chalk.gray("════════════════════════════════════════"));
-    console.log(chalk.yellow("📌 KONFIGURASI URL:"));
-    console.log(chalk.gray(`🔑 Verifikasi Token: ${TOKEN_VERIF_URL}`));
-    console.log(chalk.gray(`📦 Cek Versian: ${VERSION_CHECK_URL}`));
-    console.log(chalk.gray(`🔄 Update Script: ${SCRIPT_UPDATE_URL}`));
-    console.log(chalk.gray("════════════════════════════════════════"));
-
+    await loadLocalVersion();
     await startSesi();
     bot.launch();
     startAutoTokenRefresh();
 
     console.log(chalk.green("Bot Telegram berjalan..."));
-    console.log(chalk.yellow(`📌 Versi Script: ${CURRENT_VERSION}`));
-    console.log(chalk.yellow("💡 Gunakan /pullupdate untuk mengecek update"));
+    console.log(chalk.yellow(`📌 Versi: ${localVersion}`));
 }
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
